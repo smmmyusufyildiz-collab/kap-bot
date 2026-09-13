@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import time
 import hashlib
 import requests
 from bs4 import BeautifulSoup
@@ -15,7 +16,7 @@ TAKIP     = []
 
 STATE_FILE = "state.json"
 KAP_URL    = "https://www.kap.org.tr/tr/bildirim-sorgu-sonuc?srcbar=Y&cmp=Y&cat=4"
-GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"]
+GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]
 AI_HATA = ""
 
 HEADERS = {
@@ -38,6 +39,12 @@ def telegram_gonder(mesaj):
                       timeout=15)
     except Exception as e:
         print("Telegram hatasi:", e)
+
+def temizle(hata):
+    """Hata metninden anahtar ve uzun URL'leri temizler."""
+    s = re.sub(r"key=[A-Za-z0-9_\.\-]+", "key=***", str(hata))
+    s = re.sub(r"https?://\S+", "<url>", s)
+    return s
 
 def parmak_izi(metin):
     return hashlib.md5(metin.encode("utf-8")).hexdigest()
@@ -86,11 +93,10 @@ def state_yaz(d):
         json.dump(d, f)
 
 def yapay_zeka_puanla(maddeler):
-    """3 modeli sirayla dener; hepsi basarisizsa SEBEBI AI_HATA'ya yazar."""
+    """Her modeli 2 kez dener; anahtar URL'de degil baslikta gider; hatalari raporlar."""
     global AI_HATA
     if not GEMINI_KEY:
         AI_HATA = "GEMINI_API_KEY secret'i bos okundu"
-        print("AI hatasi:", AI_HATA)
         return None
     liste = "\n".join(f"{i+1}. {s} | {b} | {t}" for i, (s, b, t) in enumerate(maddeler))
     prompt = (
@@ -104,23 +110,27 @@ def yapay_zeka_puanla(maddeler):
         '[{"no": 1, "puan": 8, "neden": "tek cumlelik gerekce"}]\n\n'
         "BILDIRIMLER:\n" + liste
     )
+    hatalar = []
     for model in GEMINI_MODELS:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-        try:
-            r = requests.post(url, params={"key": GEMINI_KEY},
-                              json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=60)
-            if r.status_code == 404:
-                AI_HATA = f"404: {model} modeli bulunamadi, siradakini deniyorum"
-                print(AI_HATA)
-                continue
-            r.raise_for_status()
-            metin = r.json()["candidates"][0]["content"]["parts"][0]["text"]
-            m = re.search(r"\[.*\]", metin, re.S)
-            AI_HATA = ""
-            return json.loads(m.group(0)) if m else []
-        except Exception as e:
-            AI_HATA = str(e)
-            print(f"AI hatasi ({model}):", e)
+        for deneme in range(2):
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+            try:
+                r = requests.post(url, headers={"x-goog-api-key": GEMINI_KEY},
+                                  json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=60)
+                if r.status_code in (429, 500, 503):
+                    hatalar.append(f"{model}: {r.status_code}")
+                    time.sleep(5)
+                    continue
+                r.raise_for_status()
+                metin = r.json()["candidates"][0]["content"]["parts"][0]["text"]
+                m = re.search(r"\[.*\]", metin, re.S)
+                AI_HATA = ""
+                return json.loads(m.group(0)) if m else []
+            except Exception as e:
+                hatalar.append(f"{model}: {temizle(e)}")
+                time.sleep(3)
+    AI_HATA = " | ".join(hatalar)[:300]
+    print("AI hatalari:", AI_HATA)
     return None
 
 def kritik_var(metin):

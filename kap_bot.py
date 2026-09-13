@@ -16,7 +16,6 @@ TAKIP     = []
 
 STATE_FILE = "state.json"
 KAP_URL    = "https://www.kap.org.tr/tr/bildirim-sorgu-sonuc?srcbar=Y&cmp=Y&cat=4"
-GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]
 AI_HATA = ""
 
 HEADERS = {
@@ -41,7 +40,6 @@ def telegram_gonder(mesaj):
         print("Telegram hatasi:", e)
 
 def temizle(hata):
-    """Hata metninden anahtar ve uzun URL'leri temizler."""
     s = re.sub(r"key=[A-Za-z0-9_\.\-]+", "key=***", str(hata))
     s = re.sub(r"https?://\S+", "<url>", s)
     return s
@@ -92,11 +90,33 @@ def state_yaz(d):
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(d, f)
 
+# ---------------- MODEL AVCISI ----------------
+def gemini_modelleri():
+    """Google'a 'sende hangi modeller var?' diye sorar."""
+    for base in ("v1beta", "v1"):
+        try:
+            r = requests.get(f"https://generativelanguage.googleapis.com/{base}/models",
+                             headers={"x-goog-api-key": GEMINI_KEY}, timeout=30)
+            if r.status_code == 200:
+                adlar = [m.get("name", "") for m in r.json().get("models", [])]
+                print(f"{base}: {len(adlar)} model bulundu")
+                return base, adlar
+            print(f"Model listesi {base}: {r.status_code}")
+        except Exception as e:
+            print("Model listesi hatasi:", temizle(e))
+    return None, []
+
+def model_sec(adlar):
+    for tercih in ("gemini-3-flash", "gemini-flash-latest", "gemini-2.5-flash", "flash"):
+        for a in adlar:
+            if tercih in a and not any(x in a for x in ("image", "tts", "embedding", "audio")):
+                return a.split("/")[-1]
+    return None
+
 def yapay_zeka_puanla(maddeler):
-    """Her modeli 2 kez dener; anahtar URL'de degil baslikta gider; hatalari raporlar."""
     global AI_HATA
     if not GEMINI_KEY:
-        AI_HATA = "GEMINI_API_KEY secret'i bos okundu"
+        AI_HATA = "GEMINI_API_KEY bos"
         return None
     liste = "\n".join(f"{i+1}. {s} | {b} | {t}" for i, (s, b, t) in enumerate(maddeler))
     prompt = (
@@ -111,24 +131,54 @@ def yapay_zeka_puanla(maddeler):
         "BILDIRIMLER:\n" + liste
     )
     hatalar = []
-    for model in GEMINI_MODELS:
+    base, adlar = gemini_modelleri()
+    modeller = []
+    secili = model_sec(adlar)
+    if secili:
+        modeller.append(secili)
+    for y in ("gemini-flash-latest", "gemini-3-flash", "gemini-2.5-flash"):
+        if y not in modeller:
+            modeller.append(y)
+    base = base or "v1beta"
+
+    for model in modeller[:4]:
+        url = f"https://generativelanguage.googleapis.com/{base}/models/{model}:generateContent"
         for deneme in range(2):
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
             try:
                 r = requests.post(url, headers={"x-goog-api-key": GEMINI_KEY},
                                   json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=60)
                 if r.status_code in (429, 500, 503):
-                    hatalar.append(f"{model}: {r.status_code}")
-                    time.sleep(5)
+                    hatalar.append(f"{model}:{r.status_code}")
+                    time.sleep(4)
                     continue
+                if r.status_code == 404:
+                    hatalar.append(f"{model}:404")
+                    break
                 r.raise_for_status()
                 metin = r.json()["candidates"][0]["content"]["parts"][0]["text"]
                 m = re.search(r"\[.*\]", metin, re.S)
                 AI_HATA = ""
+                print("AI calisti, model:", model)
                 return json.loads(m.group(0)) if m else []
             except Exception as e:
-                hatalar.append(f"{model}: {temizle(e)}")
+                hatalar.append(f"{model}:{temizle(e)}")
                 time.sleep(3)
+
+    # Son care: OpenAI-uyumlu uc nokta
+    try:
+        r = requests.post(f"https://generativelanguage.googleapis.com/{base}/openai/chat/completions",
+                          headers={"Authorization": f"Bearer {GEMINI_KEY}"},
+                          json={"model": modeller[0], "messages": [{"role": "user", "content": prompt}]},
+                          timeout=60)
+        r.raise_for_status()
+        metin = r.json()["choices"][0]["message"]["content"]
+        m = re.search(r"\[.*\]", metin, re.S)
+        AI_HATA = ""
+        print("AI openai-uyumlu uc noktadan calisti")
+        return json.loads(m.group(0)) if m else []
+    except Exception as e:
+        hatalar.append("openai-uyumlu:" + temizle(e))
+
     AI_HATA = " | ".join(hatalar)[:300]
     print("AI hatalari:", AI_HATA)
     return None

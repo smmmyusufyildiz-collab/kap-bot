@@ -15,7 +15,8 @@ TAKIP     = []
 
 STATE_FILE = "state.json"
 KAP_URL    = "https://www.kap.org.tr/tr/bildirim-sorgu-sonuc?srcbar=Y&cmp=Y&cat=4"
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"]
+AI_HATA = ""
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -23,7 +24,6 @@ HEADERS = {
     "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
 }
 
-# AI'ya bakilmadan OTOMATIK iletilen kritik kelimeler
 KRITIK_KELIMELER = ["halka arz","halkaarz","ipo","bedelsiz","bedelli","sermaye artirimi","sermaye artırımı",
                     "temettu","temettü","kar payi","kar payı","birlesme","birleşme","devralma",
                     "geri alim","geri alım","ihale"]
@@ -43,7 +43,6 @@ def parmak_izi(metin):
     return hashlib.md5(metin.encode("utf-8")).hexdigest()
 
 def kap_bildirim_cek():
-    """KAP liste sayfasini tablo olarak okur; yeniden eskiye liste doner."""
     try:
         r = requests.get(KAP_URL, headers=HEADERS, timeout=60)
         r.raise_for_status()
@@ -87,6 +86,12 @@ def state_yaz(d):
         json.dump(d, f)
 
 def yapay_zeka_puanla(maddeler):
+    """3 modeli sirayla dener; hepsi basarisizsa SEBEBI AI_HATA'ya yazar."""
+    global AI_HATA
+    if not GEMINI_KEY:
+        AI_HATA = "GEMINI_API_KEY secret'i bos okundu"
+        print("AI hatasi:", AI_HATA)
+        return None
     liste = "\n".join(f"{i+1}. {s} | {b} | {t}" for i, (s, b, t) in enumerate(maddeler))
     prompt = (
         "Sen deneyimli bir Borsa Istanbul (BIST) analistisin.\n"
@@ -99,16 +104,24 @@ def yapay_zeka_puanla(maddeler):
         '[{"no": 1, "puan": 8, "neden": "tek cumlelik gerekce"}]\n\n'
         "BILDIRIMLER:\n" + liste
     )
-    try:
-        r = requests.post(GEMINI_URL, params={"key": GEMINI_KEY},
-                          json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=60)
-        r.raise_for_status()
-        metin = r.json()["candidates"][0]["content"]["parts"][0]["text"]
-        m = re.search(r"\[.*\]", metin, re.S)
-        return json.loads(m.group(0)) if m else []
-    except Exception as e:
-        print("AI degerlendirme hatasi:", e)
-        return None
+    for model in GEMINI_MODELS:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        try:
+            r = requests.post(url, params={"key": GEMINI_KEY},
+                              json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=60)
+            if r.status_code == 404:
+                AI_HATA = f"404: {model} modeli bulunamadi, siradakini deniyorum"
+                print(AI_HATA)
+                continue
+            r.raise_for_status()
+            metin = r.json()["candidates"][0]["content"]["parts"][0]["text"]
+            m = re.search(r"\[.*\]", metin, re.S)
+            AI_HATA = ""
+            return json.loads(m.group(0)) if m else []
+        except Exception as e:
+            AI_HATA = str(e)
+            print(f"AI hatasi ({model}):", e)
+    return None
 
 def kritik_var(metin):
     k = metin.lower()
@@ -133,26 +146,25 @@ if bildirimler:
     if not marker:
         marker = bildirimler[0]["fp"]
         state_yaz({"marker": marker})
-        print("Ilk calistirma: yer imi kondu, gecmis haberler atlanacak")
+        print("Ilk calistirma: yer imi kondu")
     else:
         for b in bildirimler:
             if b["fp"] == marker:
                 break
             yeni.append(b)
         else:
-            print("Yer imi bulunamadi (cok buyuk bosluk?), imi resetliyorum - spam onlemi")
+            print("Yer imi bulunamadi, resetlendi (spam onlemi)")
             yeni = []
             marker = bildirimler[0]["fp"]
             state_yaz({"marker": marker})
 
-# TAKIP filtresi
 if TAKIP:
     yeni = [b for b in yeni if any(re.search(r"\b" + t + r"\b", b["metin"]) for t in TAKIP)]
 
-# MANUEL TEST: son 3 gercek satiri puanlayip rapor gonder
+# MANUEL TEST
 if manuel_test and bildirimler:
     son_uc = [(b["sirket"], b["baslik"], b["tarih"]) for b in bildirimler[:3]]
-    puanlar = yapay_zeka_puanla(son_uc) if GEMINI_KEY else None
+    puanlar = yapay_zeka_puanla(son_uc)
     satirlar = ["🧪 AI analisti test raporu (gercek KAP satirlari):"]
     if puanlar:
         for i, (s, ba, t) in enumerate(son_uc, start=1):
@@ -160,14 +172,14 @@ if manuel_test and bildirimler:
             if p:
                 satirlar.append(f"{i}) {s}\n   {ba}\n   → {p.get('puan','?')}/10 | {p.get('neden','')}")
     else:
-        satirlar.append("AI'ya ulasilamadi (GEMINI_API_KEY kontrol).")
+        satirlar.append(f"AI'ya ulasilamadi. SEBEP: {AI_HATA}")
     satirlar.append(f"\nEsik: MIN_SCORE={MIN_SCORE}. Kritik kelimeler (halka arz, bedelsiz, temettu...) her zaman iletilir.")
     telegram_gonder("\n".join(satirlar))
 
 # NORMAL AKIS
 if yeni:
     print(f"{len(yeni)} yeni bildirim var")
-    puanlar = yapay_zeka_puanla([(b["sirket"], b["baslik"], b["tarih"]) for b in yeni]) if GEMINI_KEY else None
+    puanlar = yapay_zeka_puanla([(b["sirket"], b["baslik"], b["tarih"]) for b in yeni])
     gonderilen = 0
     for sira, b in enumerate(yeni, start=1):
         puan, neden, onemli = None, "", False

@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import time
 import requests
 
 # ---------------- AYARLAR ----------------
@@ -8,14 +9,26 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 CHAT_ID        = os.environ.get("CHAT_ID", "")
 GEMINI_KEY     = os.environ.get("GEMINI_API_KEY", "")
 
-MIN_SCORE = 7      # 0-10: sadece bu puan ve uzeri haberler gelir (6=daha cok, 8=sadece cok onemli)
+MIN_SCORE = 7      # 0-10: sadece bu puan ve uzeri haberler gelir
 TAKIP     = []     # orn. ["THYAO","ASELS"]; bos = tum hisseler
 
 STATE_FILE = "state.json"
-KAP_URL    = "https://www.kap.org.tr/tr/api/disclosures"
+KAP_URLS   = [
+    "https://www.kap.org.tr/tr/api/disclosures",
+    "https://www.kap.org.tr/api/disclosures",
+]
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 
-# AI'ya ulasilamazsa diye guvenlik agi (anahtar kelimeler)
+# Kendimizi gercek bir tarayici gibi tanitiyoruz
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Referer": "https://www.kap.org.tr/tr/bildirim-sorgu",
+    "Origin": "https://www.kap.org.tr",
+}
+
+# AI'ya ulasilamazsa diye guvenlik agi
 ANAHTAR = ["ihale","sozlesme","sözleşme","yatirim","yatırım","temettu","temettü","bedelsiz","bedelli",
            "geri alim","geri alım","birlesme","birleşme","devralma","kar payi","kar payı","derecelendirme",
            "rating","dava","ceza","anlasma","anlaşma","ortaklik","ortaklık","fabrika","kapasite","lisans"]
@@ -30,19 +43,29 @@ def telegram_gonder(mesaj):
         print("Telegram hatasi:", e)
 
 def kap_bildirim_cek():
-    try:
-        r = requests.get(KAP_URL, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"}, timeout=20)
-        r.raise_for_status()
-        veri = r.json()
-        if isinstance(veri, dict):
-            for v in veri.values():
-                if isinstance(v, list):
-                    return v
-            return []
-        return veri if isinstance(veri, list) else []
-    except Exception as e:
-        print("KAP baglanti hatasi:", e)
-        return []
+    """2 farkli adres, her birinde 2 deneme, 45 sn sabir."""
+    son_hata = None
+    for url in KAP_URLS:
+        for deneme in range(2):
+            try:
+                r = requests.get(url, headers=HEADERS, timeout=45)
+                r.raise_for_status()
+                veri = r.json()
+                if isinstance(veri, dict):
+                    for v in veri.values():
+                        if isinstance(v, list) and v:
+                            print("Kaynak calisiyor:", url)
+                            return v
+                    continue
+                if isinstance(veri, list) and veri:
+                    print("Kaynak calisiyor:", url)
+                    return veri
+            except Exception as e:
+                son_hata = e
+                print(f"Deneme basarisiz ({url}, deneme {deneme+1}): {e}")
+                time.sleep(3)
+    print("KAP baglanti hatasi (tum denemeler):", son_hata)
+    return []
 
 def alan(b, *anahtarlar):
     for k in anahtarlar:
@@ -125,20 +148,23 @@ if bildirimler and son_indeks == 0:
         state_yaz(son_indeks)
         print("Baslangic indeksi kaydedildi:", son_indeks)
 
-# MANUEL TEST: son 3 bildirimi puanlayip demo rapor gonder
-if manuel_test and bildirimler:
-    son_uc = [derle(b)[1:4] for b in bildirimler[:3]]
-    puanlar = yapay_zeka_puanla(son_uc) if GEMINI_KEY else None
-    satirlar = ["🧪 AI analisti test raporu:"]
-    if puanlar:
-        for i, (s, ba, t) in enumerate(son_uc, start=1):
-            p = next((x for x in puanlar if x.get("no") == i), None)
-            if p:
-                satirlar.append(f"{i}) {s}\n   {ba}\n   → {p.get('puan','?')}/10 | {p.get('neden','')}")
+# MANUEL TEST: her durumda Telegram'a durum raporu at
+if manuel_test:
+    if bildirimler:
+        son_uc = [derle(b)[1:4] for b in bildirimler[:3]]
+        puanlar = yapay_zeka_puanla(son_uc) if GEMINI_KEY else None
+        satirlar = ["🧪 AI analisti test raporu:"]
+        if puanlar:
+            for i, (s, ba, t) in enumerate(son_uc, start=1):
+                p = next((x for x in puanlar if x.get("no") == i), None)
+                if p:
+                    satirlar.append(f"{i}) {s}\n   {ba}\n   → {p.get('puan','?')}/10 | {p.get('neden','')}")
+        else:
+            satirlar.append("AI'ya ulasilamadi (GEMINI_API_KEY secret'ini kontrol et).")
+        satirlar.append(f"\nEsik: MIN_SCORE={MIN_SCORE} — sadece bu puan ve uzeri haberler iletilir.")
+        telegram_gonder("\n".join(satirlar))
     else:
-        satirlar.append("AI'ya ulasilamadi (GEMINI_API_KEY secret'ini kontrol et).")
-    satirlar.append(f"\nEsik: MIN_SCORE={MIN_SCORE} — sadece bu puan ve uzeri haberler iletilir.")
-    telegram_gonder("\n".join(satirlar))
+        telegram_gonder("🧪 Test: Telegram hatti calisiyor ✅\nKAP hatti bu turda yanit vermedi ❌ (veri kaynagini güncelleyeceğiz).")
 
 # NORMAL AKIS: yeni bildirimleri puanla, onemlileri gonder
 if yeni:

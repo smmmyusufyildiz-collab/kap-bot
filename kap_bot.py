@@ -9,8 +9,8 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 CHAT_ID        = os.environ.get("CHAT_ID", "")
 GEMINI_KEY     = os.environ.get("GEMINI_API_KEY", "")
 
-MIN_SCORE = 7      # 0-10: sadece bu puan ve uzeri haberler gelir
-TAKIP     = []     # orn. ["THYAO","ASELS"]; bos = tum hisseler
+MIN_SCORE = 7
+TAKIP     = []
 
 STATE_FILE = "state.json"
 KAP_URLS   = [
@@ -19,7 +19,6 @@ KAP_URLS   = [
 ]
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 
-# Kendimizi gercek bir tarayici gibi tanitiyoruz
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
     "Accept": "application/json, text/plain, */*",
@@ -28,10 +27,19 @@ HEADERS = {
     "Origin": "https://www.kap.org.tr",
 }
 
-# AI'ya ulasilamazsa diye guvenlik agi
-ANAHTAR = ["ihale","sozlesme","sözleşme","yatirim","yatırım","temettu","temettü","bedelsiz","bedelli",
-           "geri alim","geri alım","birlesme","birleşme","devralma","kar payi","kar payı","derecelendirme",
-           "rating","dava","ceza","anlasma","anlaşma","ortaklik","ortaklık","fabrika","kapasite","lisans"]
+# MUTLAKA YAKALANMASI GEREKEN KRITIK KELIMELER (AI'ya bakilmadan iletilir)
+KRITIK_KELIMELER = [
+    "halka arz", "halkaarz", "ipo",
+    "bedelsiz", "bedelli", "sermaye artirimi", "sermaye artırımı",
+    "temettu", "temettü", "kar payi", "kar payı",
+    "birlesme", "birleşme", "devralma", "satinalma",
+    "geri alim", "geri alım", "buyback"
+]
+
+# AI'ya ulasilamazsa diye ek guvenlik agi
+ANAHTAR = ["ihale","sozlesme","sözleşme","yatirim","yatırım",
+           "derecelendirme","rating","dava","ceza","anlasma","anlaşma",
+           "ortaklik","ortaklık","fabrika","kapasite","lisans"]
 
 # ---------------- YARDIMCILAR ----------------
 def telegram_gonder(mesaj):
@@ -43,10 +51,9 @@ def telegram_gonder(mesaj):
         print("Telegram hatasi:", e)
 
 def kap_bildirim_cek():
-    """2 farkli adres, her birinde 2 deneme, 45 sn sabir."""
     son_hata = None
     for url in KAP_URLS:
-        for deneme in range(2):
+        for deneme in range(3):
             try:
                 r = requests.get(url, headers=HEADERS, timeout=45)
                 r.raise_for_status()
@@ -92,7 +99,8 @@ def derle(b):
     baslik = alan(b, "title", "subject", "description", "disclosureSubject")
     tarih  = alan(b, "publishDate", "date", "time", "publishedAt")
     hisse  = str(alan(b, "stockCodes", "stockCode", "symbols"))
-    return idx, sirket, baslik, tarih, hisse
+    icerik = alan(b, "content", "text", "body", "summary")
+    return idx, sirket, baslik, tarih, hisse, icerik
 
 def yapay_zeka_puanla(maddeler):
     liste = "\n".join(f"{i+1}. {s} | {b} | {t}" for i, (s, b, t) in enumerate(maddeler))
@@ -102,7 +110,8 @@ def yapay_zeka_puanla(maddeler):
         "0-3: rutin/idari (genel kurul gundemi, imza sirkuleri, rutin aciklamalar)\n"
         "4-6: orta onemli (bilgilendirme, kucuk capli islemler)\n"
         "7-10: onemli (yeni sozlesme/ihale, buyuk yatirim, temettu/bedelsiz karari, birlesme/devralma, "
-        "hisse geri alim programi, onemli dava/ceza, reyting degisimi, onemli kar/zarar aciklamasi)\n"
+        "hisse geri alim programi, onemli dava/ceza, reyting degisimi, onemli kar/zarar aciklamasi, "
+        "HALKA ARZ sonuclari/yeni sirket girisi)\n"
         "YALNIZCA su formatta JSON dizisi dondur, baska hicbir sey yazma:\n"
         '[{"no": 1, "puan": 8, "neden": "tek cumlelik gerekce"}]\n\n'
         "BILDIRIMLER:\n" + liste
@@ -118,6 +127,10 @@ def yapay_zeka_puanla(maddeler):
         print("AI degerlendirme hatasi:", e)
         return None
 
+def kritik_kelime_var(metin):
+    kucuk = metin.lower()
+    return any(k in kucuk for k in KRITIK_KELIMELER)
+
 def anahtar_var(metin):
     kucuk = metin.lower()
     return any(k in kucuk for k in ANAHTAR)
@@ -126,6 +139,7 @@ def anahtar_var(metin):
 bildirimler = kap_bildirim_cek()
 if bildirimler:
     print("Ornek anahtarlar:", list(bildirimler[0].keys()))
+    print(f"Toplam {len(bildirimler)} bildirim alindi")
 
 son_indeks = state_oku()
 manuel_test = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
@@ -133,11 +147,11 @@ manuel_test = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
 yeni = []
 if bildirimler and son_indeks > 0:
     for b in bildirimler:
-        idx, sirket, baslik, tarih, hisse = derle(b)
+        idx, sirket, baslik, tarih, hisse, icerik = derle(b)
         if idx > son_indeks:
             if TAKIP and not any(t.upper() in hisse.upper() for t in TAKIP):
                 continue
-            yeni.append((idx, sirket, baslik, tarih))
+            yeni.append((idx, sirket, baslik, tarih, icerik))
 
 # ILK CALISTIRMA: mevcutlari "gordum" say
 if bildirimler and son_indeks == 0:
@@ -148,7 +162,7 @@ if bildirimler and son_indeks == 0:
         state_yaz(son_indeks)
         print("Baslangic indeksi kaydedildi:", son_indeks)
 
-# MANUEL TEST: her durumda Telegram'a durum raporu at
+# MANUEL TEST
 if manuel_test:
     if bildirimler:
         son_uc = [derle(b)[1:4] for b in bildirimler[:3]]
@@ -162,33 +176,45 @@ if manuel_test:
         else:
             satirlar.append("AI'ya ulasilamadi (GEMINI_API_KEY secret'ini kontrol et).")
         satirlar.append(f"\nEsik: MIN_SCORE={MIN_SCORE} — sadece bu puan ve uzeri haberler iletilir.")
+        satirlar.append("KRITIK_KELIMELER: halka arz, bedelsiz, temettu, birlesme, geri alim → otomatik iletilir.")
         telegram_gonder("\n".join(satirlar))
     else:
-        telegram_gonder("🧪 Test: Telegram hatti calisiyor ✅\nKAP hatti bu turda yanit vermedi ❌ (veri kaynagini güncelleyeceğiz).")
+        telegram_gonder("🧪 Test: Telegram hatti calisiyor ✅\nKAP hatti bu turda yanit vermedi ❌")
 
-# NORMAL AKIS: yeni bildirimleri puanla, onemlileri gonder
+# NORMAL AKIS
 if yeni:
-    puanlar = yapay_zeka_puanla([(s, b, t) for (_, s, b, t) in yeni]) if GEMINI_KEY else None
+    puanlar = yapay_zeka_puanla([(s, b, t) for (_, s, b, t, _) in yeni]) if GEMINI_KEY else None
     gonderilen = 0
-    for sira, (idx, sirket, baslik, tarih) in enumerate(yeni, start=1):
+    for sira, (idx, sirket, baslik, tarih, icerik) in enumerate(yeni, start=1):
         puan, neden, onemli = None, "", False
-        if puanlar:
+        
+        # KURAL 1: Kritik kelime varsa AI'ya bakma, direkt ilet
+        if kritik_kelime_var(baslik + " " + icerik):
+            onemli = True
+            neden = "KRITIK kelime tespit edildi (halka arz/bedelsiz/temettu vb.)"
+            puan = "⚡"
+        
+        # KURAL 2: AI puanlamasi
+        elif puanlar:
             p = next((x for x in puanlar if x.get("no") == sira), None)
             if p:
                 puan = p.get("puan")
                 neden = p.get("neden", "")
                 onemli = isinstance(puan, (int, float)) and puan >= MIN_SCORE
+        
+        # KURAL 3: AI yoksa anahtar kelime guvenlik agi
         else:
-            onemli = anahtar_var(baslik)
+            onemli = anahtar_var(baslik + " " + icerik)
             neden = "AI'ya ulasilamadi; anahtar kelime filtresi yakaladi."
             puan = "-"
+        
         if onemli:
             telegram_gonder(
                 f"🚨 ÖNEMLİ KAP BİLDİRİMİ — Etki: {puan}/10\n"
                 f"🏢 {sirket}\n📰 {baslik}\n🧠 {neden}\n🕐 {tarih}\n"
                 f"🔗 https://www.kap.org.tr/tr/Bildirim/{idx}")
             gonderilen += 1
-            print("Iletildi (puan", puan, "):", sirket, "-", baslik)
+            print(f"Iletildi (puan {puan}): {sirket} - {baslik}")
     print(f"Bu turda {len(yeni)} yeni bildirim, {gonderilen} iletim.")
     son_indeks = max([son_indeks] + [i for (i, *_) in yeni])
     state_yaz(son_indeks)

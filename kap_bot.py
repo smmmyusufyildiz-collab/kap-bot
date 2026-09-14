@@ -4,6 +4,7 @@ import json
 import time
 import hashlib
 import requests
+from datetime import datetime, timedelta, timezone
 from bs4 import BeautifulSoup
 
 # ---------------- AYARLAR ----------------
@@ -17,6 +18,7 @@ TAKIP     = []
 STATE_FILE = "state.json"
 KAP_URL    = "https://www.kap.org.tr/tr/bildirim-sorgu-sonuc?srcbar=Y&cmp=Y&cat=4"
 AI_HATA = ""
+TRT = timezone(timedelta(hours=3))   # Turkiye saati
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -47,6 +49,51 @@ def temizle(hata):
 def parmak_izi(metin):
     return hashlib.md5(metin.encode("utf-8")).hexdigest()
 
+def tarih_cozun(s):
+    m = re.search(r"(Bugün|Dün|(\d{2})\.(\d{2})\.(\d{4}))\s+(\d{1,2}):(\d{2})", s)
+    if not m:
+        return None
+    simdi = datetime.now(TRT)
+    if m.group(1) == "Bugün":
+        d = simdi.date()
+    elif m.group(1) == "Dün":
+        d = simdi.date() - timedelta(days=1)
+    else:
+        d = datetime(int(m.group(4)), int(m.group(3)), int(m.group(2))).date()
+    return datetime(d.year, d.month, d.day, int(m.group(5)), int(m.group(6)), tzinfo=TRT)
+
+def seans_etiketi(dt):
+    if dt.weekday() >= 5:
+        return "SEANS DIŞI"
+    if dt.hour < 10:
+        return "SEANS ÖNCESİ"
+    if dt.hour < 18:
+        return "SEANS İÇİ"
+    return "SEANS DIŞI"
+
+def mesaj_kur(b, p):
+    dt = tarih_cozun(b["tarih"])
+    simdi = datetime.now(TRT)
+    dk = int((simdi - dt).total_seconds() // 60) if dt else "?"
+    if dk == 0:
+        dk = "00"
+    seans = seans_etiketi(dt) if dt else "?"
+    kod = str(p.get("kod", "")).strip().upper()
+    if kod and kod not in b["metin"].upper():
+        kod = ""   # AI'nin kodu satirla eslesmezse kullanma
+    ust = f"{kod} – {b['tarih']} – {seans} – {b['baslik']}" if kod else f"{b['tarih']} – {seans} – {b['baslik']}"
+    return (
+        f"⏱ KAP {dk} Dakika\n"
+        f"🏢 {b['sirket']}\n"
+        f"📰 {ust}\n\n"
+        f"📝 {p.get('ozet', '')}\n\n"
+        f"💡 Neden önemli: {p.get('neden', '')}\n"
+        f"📈 Olası etki: {p.get('etki', '')}\n"
+        f"⚠️ En önemli risk/karşı argüman: {p.get('risk', '')}\n"
+        f"🧠 AI etki puanı: {p.get('puan', '?')}/10\n"
+        f"🔗 Doğrudan KAP bildirimi: https://www.kap.org.tr/tr/bildirim-sorgu"
+    )
+
 def kap_bildirim_cek():
     try:
         r = requests.get(KAP_URL, headers=HEADERS, timeout=60)
@@ -72,8 +119,9 @@ def kap_bildirim_cek():
                     break
             adaylar = [h for h in hucreler if len(h) > 15 and "A.Ş." not in h and not re.search(r"\d{1,2}:\d{2}", h)]
             baslik = max(adaylar, key=len) if adaylar else metin[:120]
-            sonuc.append({"fp": parmak_izi(metin), "tarih": tarih,
-                          "sirket": sirket, "baslik": baslik, "metin": metin})
+            # KALICI MUREKKEP: im sadece degismeyen uc alandan hesaplanir
+            sonuc.append({"fp": parmak_izi(tarih + "|" + sirket + "|" + baslik),
+                          "tarih": tarih, "sirket": sirket, "baslik": baslik, "metin": metin})
         return sonuc
     except Exception as e:
         print("KAP baglanti hatasi:", e)
@@ -90,9 +138,8 @@ def state_yaz(d):
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(d, f)
 
-# ---------------- MODEL AVCISI ----------------
+# ---------------- MODEL AVCISI + AI ----------------
 def gemini_modelleri():
-    """Google'a 'sende hangi modeller var?' diye sorar."""
     for base in ("v1beta", "v1"):
         try:
             r = requests.get(f"https://generativelanguage.googleapis.com/{base}/models",
@@ -121,13 +168,15 @@ def yapay_zeka_puanla(maddeler):
     liste = "\n".join(f"{i+1}. {s} | {b} | {t}" for i, (s, b, t) in enumerate(maddeler))
     prompt = (
         "Sen deneyimli bir Borsa Istanbul (BIST) analistisin.\n"
-        "Asagidaki KAP bildirimlerini hisse degerine olasi etkisine gore 0-10 arasi puanla:\n"
-        "0-3: rutin/idari (genel kurul gundemi, imza sirkuleri, rutin aciklamalar)\n"
-        "4-6: orta onemli (bilgilendirme, kucuk capli islemler)\n"
-        "7-10: onemli (yeni sozlesme/ihale, buyuk yatirim, temettu/bedelsiz karari, birlesme/devralma, "
-        "hisse geri alim programi, onemli dava/ceza, reyting degisimi, onemli kar/zarar, HALKA ARZ sonuclari)\n"
-        "YALNIZCA su formatta JSON dizisi dondur, baska hicbir sey yazma:\n"
-        '[{"no": 1, "puan": 8, "neden": "tek cumlelik gerekce"}]\n\n'
+        "Asagidaki KAP bildirimlerini degerlendir. Her biri icin:\n"
+        "- puan: hisse degerine olasi etki 0-10 (0-3 rutin, 4-6 orta, 7-10 onemli)\n"
+        "- kod: sirketin BIST hisse kodu (emin degilsen bos birak)\n"
+        "- ozet: bildirimin 1-2 cumlelik ozu\n"
+        "- neden: neden onemli, 1 cumle\n"
+        "- etki: kisa vade olasi fiyat/algı etkisi, 1 cumle\n"
+        "- risk: en onemli risk/karsi arguman, 1 cumle\n"
+        "YALNIZCA su formatta JSON dizisi dondur:\n"
+        '[{"no":1,"puan":8,"kod":"TTKOM","ozet":"...","neden":"...","etki":"...","risk":"..."}]\n\n'
         "BILDIRIMLER:\n" + liste
     )
     hatalar = []
@@ -164,7 +213,6 @@ def yapay_zeka_puanla(maddeler):
                 hatalar.append(f"{model}:{temizle(e)}")
                 time.sleep(3)
 
-    # Son care: OpenAI-uyumlu uc nokta
     try:
         r = requests.post(f"https://generativelanguage.googleapis.com/{base}/openai/chat/completions",
                           headers={"Authorization": f"Bearer {GEMINI_KEY}"},
@@ -233,8 +281,11 @@ if manuel_test and bildirimler:
                 satirlar.append(f"{i}) {s}\n   {ba}\n   → {p.get('puan','?')}/10 | {p.get('neden','')}")
     else:
         satirlar.append(f"AI'ya ulasilamadi. SEBEP: {AI_HATA}")
-    satirlar.append(f"\nEsik: MIN_SCORE={MIN_SCORE}. Kritik kelimeler (halka arz, bedelsiz, temettu...) her zaman iletilir.")
+    satirlar.append(f"\nEsik: MIN_SCORE={MIN_SCORE}. Kritik kelimeler her zaman iletilir.")
     telegram_gonder("\n".join(satirlar))
+    if puanlar:
+        p0 = next((x for x in puanlar if x.get("no") == 1), puanlar[0])
+        telegram_gonder("🎬 FORMAT ÖNİZLEME (gercek satirdan):\n" + mesaj_kur(bildirimler[0], p0))
 
 # NORMAL AKIS
 if yeni:
@@ -242,26 +293,36 @@ if yeni:
     puanlar = yapay_zeka_puanla([(b["sirket"], b["baslik"], b["tarih"]) for b in yeni])
     gonderilen = 0
     for sira, b in enumerate(yeni, start=1):
-        puan, neden, onemli = None, "", False
         if kritik_var(b["metin"]):
-            onemli, neden, puan = True, "KRITIK kelime (halka arz/bedelsiz/temettu vb.)", "⚡"
-        elif puanlar:
-            p = next((x for x in puanlar if x.get("no") == sira), None)
+            p = next((x for x in (puanlar or []) if x.get("no") == sira), None) or {}
             if p:
-                puan = p.get("puan")
-                neden = p.get("neden", "")
-                onemli = isinstance(puan, (int, float)) and puan >= MIN_SCORE
-        else:
-            onemli = anahtar_var(b["metin"])
-            neden = "AI'ya ulasilamadi; anahtar kelime agi yakaladi."
-            puan = "-"
-        if onemli:
-            telegram_gonder(
-                f"🚨 ÖNEMLİ KAP BİLDİRİMİ — Etki: {puan}/10\n"
-                f"🏢 {b['sirket']}\n📰 {b['baslik']}\n🧠 {neden}\n🕐 {b['tarih']}\n"
-                f"🔗 https://www.kap.org.tr/tr/bildirim-sorgu")
+                telegram_gonder(mesaj_kur(b, p))
+            else:
+                telegram_gonder(
+                    f"⚡ ÖNEMLİ KAP BİLDİRİMİ (kritik kelime)\n"
+                    f"🏢 {b['sirket']}\n📰 {b['baslik']}\n🕐 {b['tarih']}\n"
+                    f"🔗 https://www.kap.org.tr/tr/bildirim-sorgu")
             gonderilen += 1
-            print(f"Iletildi (puan {puan}): {b['sirket']} - {b['baslik']}")
+            print("Iletildi (kritik):", b["sirket"], "-", b["baslik"])
+            continue
+        if puanlar:
+            p = next((x for x in puanlar if x.get("no") == sira), None)
+            try:
+                puan_f = float(p.get("puan")) if p else None
+            except (TypeError, ValueError):
+                puan_f = None
+            if puan_f is not None and puan_f >= MIN_SCORE:
+                telegram_gonder(mesaj_kur(b, p))
+                gonderilen += 1
+                print(f"Iletildi (puan {puan_f}):", b["sirket"], "-", b["baslik"])
+        else:
+            if anahtar_var(b["metin"]):
+                telegram_gonder(
+                    f"⚡ ÖNEMLİ KAP BİLDİRİMİ (anahtar kelime)\n"
+                    f"🏢 {b['sirket']}\n📰 {b['baslik']}\n🕐 {b['tarih']}\n"
+                    f"🔗 https://www.kap.org.tr/tr/bildirim-sorgu")
+                gonderilen += 1
+                print("Iletildi (anahtar):", b["sirket"], "-", b["baslik"])
     print(f"{gonderilen} haber iletildi")
     if bildirimler:
         state_yaz({"marker": bildirimler[0]["fp"]})

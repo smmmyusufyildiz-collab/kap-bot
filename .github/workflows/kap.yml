@@ -39,5 +39,6 @@ jobs:
             echo "Durum degismedi."
           else
             git commit -m "durum: yeni bildirim indeksi"
+            git pull --rebase origin main || true
             git push
           fi

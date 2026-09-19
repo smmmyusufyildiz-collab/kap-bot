@@ -184,6 +184,8 @@ def takipleri_kontrol_et():
             f"💰 Baz kapanış: {baz:.2f} TL\n"
             f"💰 48s kapanış: {son:.2f} TL\n"
             f"{emoji} Değişim: {fark:+.2f}%")
+        k["son"] = son
+        k["fark"] = round(fark, 2)
         k["done"] = True
         degisti = True
         print("Takip raporu gönderildi:", k["kod"], f"{fark:+.2f}%")

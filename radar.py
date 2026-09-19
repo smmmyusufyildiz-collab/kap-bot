@@ -166,7 +166,11 @@ def radar_tur(manuel=False):
             kod = item.get("s", "?")
             d = item.get("d", [])
             dur = "haber VAR" if kod in kap_kodlari else "haber YOK"
-            satirlar.append(f"• {kod} | {d[0] if d else '?'} | %{d[2] if len(d) > 2 else '?'} | KAP 24h: {dur}")
+                try:
+                yuzde = f"%{float(d[2]):.1f}"
+            except (TypeError, ValueError):
+                yuzde = "?"
+            satirlar.append(f"• {kod} | {d[0] if d else '?'} | {yuzde} | KAP 24h: {dur}")
         telegram_gonder("\n".join(satirlar))
     print(f"Bu turda {gonderilen} radar uyarisi gonderildi")
 

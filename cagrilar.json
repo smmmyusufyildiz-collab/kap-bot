@@ -1,0 +1,11 @@
+[
+  {"tarih": "2026-09-07", "kaynak": "Sıla EROĞLU (grup)", "kod": "YAYLA", "destek": 20.10, "direnç": 23.60},
+  {"tarih": "2026-09-07", "kaynak": "Sıla EROĞLU (grup)", "kod": "ISDMR", "destek": 53.10, "direnç": 57.25},
+  {"tarih": "2026-09-07", "kaynak": "Sıla EROĞLU (grup)", "kod": "BJKAS", "destek": 1.90, "direnç": 2.30},
+  {"tarih": "2026-09-07", "kaynak": "Sıla EROĞLU (grup)", "kod": "MSGYO", "destek": 5.50, "direnç": 6.00},
+  {"tarih": "2026-09-07", "kaynak": "Sıla EROĞLU (grup)", "kod": "HLGYO", "destek": 4.30, "direnç": 4.85},
+  {"tarih": "2026-09-07", "kaynak": "Sıla EROĞLU (grup)", "kod": "ONRYT", "destek": 55.70, "direnç": 63.55},
+  {"tarih": "2026-09-07", "kaynak": "Sıla EROĞLU (grup)", "kod": "FENER", "destek": 3.00, "direnç": 3.20},
+  {"tarih": "2026-09-07", "kaynak": "Sıla EROĞLU (grup)", "kod": "FLAP", "stop": 10.23},
+  {"tarih": "2026-09-07", "kaynak": "Sıla EROĞLU (grup)", "kod": "TABGD", "destek": 228.0, "direnç": 250.0}
+]

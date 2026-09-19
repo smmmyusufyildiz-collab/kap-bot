@@ -7,5 +7,10 @@
   {"tarih": "2026-09-07", "kaynak": "Sıla EROĞLU (grup)", "kod": "ONRYT", "destek": 55.70, "direnç": 63.55},
   {"tarih": "2026-09-07", "kaynak": "Sıla EROĞLU (grup)", "kod": "FENER", "destek": 3.00, "direnç": 3.20},
   {"tarih": "2026-09-07", "kaynak": "Sıla EROĞLU (grup)", "kod": "FLAP", "stop": 10.23},
-  {"tarih": "2026-09-07", "kaynak": "Sıla EROĞLU (grup)", "kod": "TABGD", "destek": 228.0, "direnç": 250.0}
+  {"tarih": "2026-09-07", "kaynak": "Sıla EROĞLU (grup)", "kod": "TABGD", "destek": 228.0, "direnç": 250.0},
+  {"tarih": "2026-09-20", "kaynak": "Halka Arz Haber (tarama)", "kod": "ENKAI", "soylenen": 85.35, "direnç": 114.0, "pencere": 20},
+  {"tarih": "2026-09-20", "kaynak": "Halka Arz Haber (tarama)", "kod": "FRMPL", "soylenen": 26.06, "direnç": 30.0, "pencere": 20},
+  {"tarih": "2026-09-20", "kaynak": "Halka Arz Haber (tarama)", "kod": "ASELS", "soylenen": 372.75, "direnç": 407.0, "pencere": 20},
+  {"tarih": "2026-09-20", "kaynak": "Halka Arz Haber (tarama)", "kod": "THYAO", "soylenen": 285.5, "direnç": 315.0, "pencere": 20},
+  {"tarih": "2026-09-20", "kaynak": "Halka Arz Haber (tarama)", "kod": "GLRMK", "soylenen": 140.0, "direnç": 180.0, "pencere": 20}
 ]

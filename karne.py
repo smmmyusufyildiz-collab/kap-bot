@@ -153,7 +153,9 @@ for (tarih, kaynak), items in sorted(partiler.items()):
             satirlar.append("💬 Bu parti piyasayla aynı sürüklendi — belirgin marifet yok.")
         else:
             satirlar.append("💬 Bu parti piyasadan DAHA kötü — katma değer negatif.")
-satirlar.append("📅 Not: Hedef çağrıları 20 işlem günü, seviye çağrıları 10 gün üzerinden ölçülür; alfa piyasa etkisini ayrıştırır.")
+if beklemede:
+    kodlar = ", ".join(sorted({c["kod"] for c in beklemede}))
+    satirlar.append(f"⏳ Ölçüm bekleyen: {kodlar} — baz fiyat, çağrıdan sonraki ilk işlem günü kapanışıdır (hafta sonu çağrıları Pazartesi başlar).")satirlar.append("📅 Not: Hedef çağrıları 20 işlem günü, seviye çağrıları 10 gün üzerinden ölçülür; alfa piyasa etkisini ayrıştırır.")
 satirlar.append("🔎 Bu bir performans ölçümüdür, yatırım tavsiyesi değildir.")
 telegram_gonder("\n".join(satirlar))
 print("Karne v3 gonderildi")

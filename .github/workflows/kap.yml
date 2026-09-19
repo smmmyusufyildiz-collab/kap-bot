@@ -21,7 +21,7 @@ jobs:
           python-version: "3.12"
 
       - name: Kutuphaneleri kur
-        run:  pip install requests beautifulsoup4
+        run: pip install requests beautifulsoup4
 
       - name: KAP kontrolu
         env:
@@ -34,11 +34,11 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add radar.json radar_track.json 2>/dev/null || true
+          git add state.json track.json 2>/dev/null || true
           if git diff --staged --quiet; then
             echo "Durum degismedi."
           else
-            git commit -m "durum: yeni bildirim indeksi"
+            git commit -m "durum: yer imi ve gonderildi listesi"
             git pull --rebase origin main || true
             git push
           fi

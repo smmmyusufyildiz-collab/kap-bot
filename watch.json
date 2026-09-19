@@ -1,7 +1,7 @@
 [
   {"kod": "YAYLA", "destek": 20.10, "direnç": 23.60},
   {"kod": "ISDMR", "destek": 53.10, "direnç": 57.25},
-  {"kod": "BJKAS", "destek": 1.90, "destek2": 1.83, "direnç": 230e0, "not": "direnç 2.30"},
+  {"kod": "BJKAS", "destek": 1.90, "destek2": 1.83, "direnç": 2.30},
   {"kod": "MSGYO", "destek": 5.50, "direnç": 6.00},
   {"kod": "HLGYO", "destek": 4.30, "direnç": 4.85},
   {"kod": "ONRYT", "destek": 55.70, "direnç": 63.55},

@@ -1,0 +1,27 @@
+name: Grup Karnesi
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 15 1,15 * *"
+
+jobs:
+  karne:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repoyu indir
+        uses: actions/checkout@v4
+
+      - name: Python kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Kutuphaneleri kur
+        run: pip install requests
+
+      - name: Karneyi hesapla
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: python karne.py

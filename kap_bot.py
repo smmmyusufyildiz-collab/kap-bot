@@ -102,7 +102,7 @@ def mesaj_kur(b, p, baz=None):
     msg += "🔗 Doğrudan KAP bildirimi: https://www.kap.org.tr/tr/bildirim-sorgu"
     return msg
 
-# ---------------- FİYAT KAYNAĞI (Yahoo Finance) ----------------
+# ---------------- FİYAT KAYNAĞI ----------------
 def yahoo_bars(kod):
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{kod}.IS"
     r = requests.get(url, params={"range": "1mo", "interval": "1d"},
@@ -119,7 +119,6 @@ def yahoo_bars(kod):
     return bars
 
 def baz_kapanis(kod, dt_haber):
-    """Haber anindan onceki son gunluk kapanis."""
     try:
         secili = None
         for dt, c in yahoo_bars(kod):
@@ -138,7 +137,7 @@ def son_kapanis(kod):
         print("Son kapanis alinamadi:", kod, temizle(e))
         return None
 
-# ---------------- TAKİP DEFTERİ ----------------
+# ---------------- DEFTERLER ----------------
 def track_oku():
     try:
         with open(TRACK_FILE, encoding="utf-8") as f:
@@ -216,10 +215,17 @@ def kap_bildirim_cek():
                 if m:
                     sirket = m.group(1).strip()
                     break
-            adaylar = [h for h in hucreler if len(h) > 15 and "A.Ş." not in h and not re.search(r"\d{1,2}:\d{2}", h)]
+            # SABIT BASLIK: degisken hucreler (ek sayisi, YUKLENIYOR, checkbox) hariç
+            adaylar = [h for h in hucreler
+                       if len(h) > 15
+                       and "A.Ş." not in h
+                       and not re.search(r"\d{1,2}:\d{2}", h)
+                       and "YÜKLENİYOR" not in h
+                       and "checkbox" not in h.lower()]
             baslik = max(adaylar, key=len) if adaylar else metin[:120]
-            sonuc.append({"fp": parmak_izi(tarih + "|" + sirket + "|" + baslik),
-                          "tarih": tarih, "sirket": sirket, "baslik": baslik, "metin": metin})
+            kimlik = parmak_izi(tarih + "|" + sirket + "|" + baslik)
+            sonuc.append({"fp": kimlik, "tarih": tarih, "sirket": sirket,
+                          "baslik": baslik, "metin": metin})
         return sonuc
     except Exception as e:
         print("KAP baglanti hatasi:", e)
@@ -234,7 +240,7 @@ def state_oku():
 
 def state_yaz(d):
     with open(STATE_FILE, "w", encoding="utf-8") as f:
-        json.dump(d, f)
+        json.dump(d, f, ensure_ascii=False)
 
 # ---------------- MODEL AVCISI + AI ----------------
 def gemini_modelleri():
@@ -355,7 +361,7 @@ if bildirimler:
         state_yaz({"marker": marker, "sent": list(sent)})
         print("Ilk calistirma: yer imi kondu")
     else:
-        for b in bildirimler:
+        for b in bildirimler[:100]:
             if b["fp"] == marker:
                 break
             yeni.append(b)
@@ -386,7 +392,7 @@ if manuel_test and bildirimler:
         p0 = next((x for x in puanlar if x.get("no") == 1), puanlar[0])
         telegram_gonder("🎬 FORMAT ÖNİZLEME (gercek satirdan):\n" + mesaj_kur(bildirimler[0], p0))
 
-# 48 SAAT TAKİPLERİNİN KONTROLÜ (her turda)
+# 48 SAAT TAKİPLERİ
 takipleri_kontrol_et()
 
 # NORMAL AKIS
@@ -441,6 +447,6 @@ if yeni:
             print("Takip defterine eklendi:", kod, "baz:", f"{baz:.2f}")
     print(f"{gonderilen} haber iletildi")
     if bildirimler:
-        state_yaz({"marker": bildirimler[0]["fp"], "sent": list(sent)[-200:]})
+        state_yaz({"marker": bildirimler[0]["fp"], "sent": list(sent)[-300:]})
 else:
     print("Yeni bildirim yok.")

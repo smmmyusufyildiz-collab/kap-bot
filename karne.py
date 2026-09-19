@@ -7,7 +7,7 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 CHAT_ID        = os.environ.get("CHAT_ID", "")
 TRT = timezone(timedelta(hours=3))
 CALLS_FILE = "cagrilar.json"
-BENCH_SYM  = "^XU100.IS"   # BIST 100
+BENCH_ADAYLARI = ["^XU100", "^XU100.IS", "XU100.IS"]   # BIST 100 adaylari
 GUN = 10
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"}
@@ -87,7 +87,12 @@ def olcu(c, bench):
     }
 
 cagrilar = json.load(open(CALLS_FILE, encoding="utf-8")) if os.path.exists(CALLS_FILE) else []
-bench = bars_sym(BENCH_SYM)
+bench = []
+for aday in BENCH_ADAYLARI:
+    bench = bars_sym(aday)
+    if bench:
+        print("Bench sembolu calisti:", aday)
+        break
 sonuclar = [m for m in (olcu(c, bench) for c in cagrilar) if m]
 if not sonuclar:
     telegram_gonder("🧾 Grup karnesi: veri alinamadi.")

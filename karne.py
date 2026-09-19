@@ -124,9 +124,12 @@ for m in sonuclar:
 ort = sum(getiriler) / len(getiriler)
 ort_alfa = sum(alfalar) / len(alfalar)
 satirlar.append(f"📊 TOPLU: {len(sonuclar)} çağrı | direnç: {dg} | destek kıran: {dk} | stop: {sg}")
-satirlar.append(f"📈 Çağrı ort.: {ort:+.2f}% | 📉 Piyasa (BIST100) aynı pencere: {bench_deger:+.2f}% | ⚖️ ALFA: {ort_alfa:+.2f}%")
+bench_txt = f"{bench_deger:+.2f}%" if bench_deger is not None else "veri yok"
+satirlar.append(f"📈 Çağrı ort.: {ort:+.2f}% | 📉 Piyasa (BIST100) aynı pencere: {bench_txt} | ⚖️ ALFA: {ort_alfa:+.2f}%")
 if len(sonuclar) >= 5:
-    if ort_alfa > 2:
+    if bench_deger is None:
+        satirlar.append("💬 Yorum: Piyasa verisi alinamadi; ham getiriye gore: " + ("kayip bolgesi, temkinli ol." if ort < 0 else "pozitif bolge."))
+    elif ort_alfa > 2:
         satirlar.append("💬 Yorum: Çağrılar piyasayı belirgin yendi — marifet sinyali var.")
     elif ort_alfa >= -2:
         satirlar.append("💬 Yorum: Çağrılar piyasanla aynı sürüklendi — olağanüstü hafta etkisi ayrıştırıldı; belirgin marifet ya da belirgin beceriksizlik yok.")

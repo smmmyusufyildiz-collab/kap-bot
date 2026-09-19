@@ -345,13 +345,14 @@ if bildirimler:
 
 state = state_oku()
 marker = state.get("marker", "")
+sent = set(state.get("sent", []))
 manuel_test = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
 
 yeni = []
 if bildirimler:
     if not marker:
         marker = bildirimler[0]["fp"]
-        state_yaz({"marker": marker})
+        state_yaz({"marker": marker, "sent": list(sent)})
         print("Ilk calistirma: yer imi kondu")
     else:
         for b in bildirimler:
@@ -362,7 +363,7 @@ if bildirimler:
             print("Yer imi bulunamadi, resetlendi (spam onlemi)")
             yeni = []
             marker = bildirimler[0]["fp"]
-            state_yaz({"marker": marker})
+            state_yaz({"marker": marker, "sent": list(sent)})
 
 if TAKIP:
     yeni = [b for b in yeni if any(re.search(r"\b" + t + r"\b", b["metin"]) for t in TAKIP)]
@@ -394,6 +395,8 @@ if yeni:
     puanlar = yapay_zeka_puanla([(b["sirket"], b["baslik"], b["tarih"]) for b in yeni])
     gonderilen = 0
     for sira, b in enumerate(yeni, start=1):
+        if b["fp"] in sent:
+            continue
         gonderilecek = False
         p = None
         if kritik_var(b["metin"]):
@@ -426,6 +429,7 @@ if yeni:
                 f"🏢 {b['sirket']}\n📰 {b['baslik']}\n🕐 {b['tarih']}{ek}\n"
                 f"🔗 https://www.kap.org.tr/tr/bildirim-sorgu")
         gonderilen += 1
+        sent.add(b["fp"])
         print("Iletildi:", b["sirket"], "-", b["baslik"])
 
         if kod and dt and baz:
@@ -437,6 +441,6 @@ if yeni:
             print("Takip defterine eklendi:", kod, "baz:", f"{baz:.2f}")
     print(f"{gonderilen} haber iletildi")
     if bildirimler:
-        state_yaz({"marker": bildirimler[0]["fp"]})
+        state_yaz({"marker": bildirimler[0]["fp"], "sent": list(sent)[-200:]})
 else:
     print("Yeni bildirim yok.")

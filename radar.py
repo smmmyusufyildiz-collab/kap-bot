@@ -9,14 +9,15 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 CHAT_ID        = os.environ.get("CHAT_ID", "")
 TRT = timezone(timedelta(hours=3))
 
-SCANNER    = "https://scanner.tradingview.com/turkey/scan"
-KAP_URL    = "https://www.kap.org.tr/tr/bildirim-sorgu-sonuc?srcbar=Y&cmp=Y&cat=4"
-RADAR_FILE = "radar.json"
+SCANNER     = "https://scanner.tradingview.com/turkey/scan"
+KAP_URL     = "https://www.kap.org.tr/tr/bildirim-sorgu-sonuc?srcbar=Y&cmp=Y&cat=4"
+RADAR_FILE  = "radar.json"
+RADAR_TRACK = "radar_track.json"
 
-ESIK_YUZDE = 3.0       # minimum % hareket
-ESIK_HACIM = 2.0       # minimum hacim carpani
-SESSIZLIK_SAAT = 6     # ayni hisse icin susma suresi
-MAKS_UYARI = 5         # tur basina en fazla uyari
+ESIK_YUZDE = 3.0
+ESIK_HACIM = 2.0
+SESSIZLIK_SAAT = 6
+MAKS_UYARI = 5
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"}
 
@@ -35,6 +36,18 @@ def seans_icinde_mi():
     dk = s.hour * 60 + s.minute
     return (9 * 60 + 40) <= dk <= (18 * 60 + 30)
 
+def son_kapanis(kod):
+    try:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{kod}.IS"
+        r = requests.get(url, params={"range": "5d", "interval": "1d"}, headers=HEADERS, timeout=30)
+        r.raise_for_status()
+        res = r.json()["chart"]["result"][0]
+        closes = [c for c in res["indicators"]["quote"][0].get("close", []) if c is not None]
+        return float(closes[-1]) if closes else None
+    except Exception as e:
+        print("Son kapanis hatasi:", kod, e)
+        return None
+
 def tarama(yon):
     op = "egreater" if yon == "up" else "eless"
     sag = ESIK_YUZDE if yon == "up" else -ESIK_YUZDE
@@ -49,8 +62,7 @@ def tarama(yon):
     r.raise_for_status()
     return r.json().get("data", [])
 
-def kap_son24_kodlar():
-    """Son 24 saatte KAP'ta adi gecen hisse kodlari."""
+def kap_son24_kodlar(saat=24):
     kodlar = set()
     try:
         r = requests.get(KAP_URL, headers=HEADERS, timeout=60)
@@ -70,7 +82,7 @@ def kap_son24_kodlar():
             else:
                 g, a, y = tm.group(1).split(".")
                 dt = datetime(int(y), int(a), int(g), int(tm.group(2)), int(tm.group(3)), tzinfo=TRT)
-            if simdi - dt > timedelta(hours=24):
+            if simdi - dt > timedelta(hours=saat):
                 continue
             for hucre in hucreler:
                 if re.fullmatch(r"[A-Z0-9]{3,6}(?: [A-Z0-9]{3,6})*(?: \(\+\d+\))?", hucre):
@@ -91,8 +103,65 @@ def state_yaz(d):
     with open(RADAR_FILE, "w", encoding="utf-8") as f:
         json.dump(d, f, ensure_ascii=False)
 
+def radar_track_oku():
+    try:
+        with open(RADAR_TRACK, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+def radar_track_yaz(l):
+    with open(RADAR_TRACK, "w", encoding="utf-8") as f:
+        json.dump(l, f, ensure_ascii=False)
+
+def radar_takip_kontrol():
+    """Radar uyarilarinin 48 saat sonucunu olcer ve deftere yazar."""
+    liste = radar_track_oku()
+    if not liste:
+        return
+    simdi = datetime.now(TRT)
+    degisti = False
+    kap_kodlari = None
+    for k in liste:
+        if k.get("done"):
+            continue
+        try:
+            hedef = datetime.fromisoformat(k["hedef_t"])
+        except Exception:
+            k["done"] = True
+            degisti = True
+            continue
+        if simdi < hedef:
+            continue
+        son = son_kapanis(k["kod"])
+        if son is None:
+            if simdi > hedef + timedelta(days=5):
+                k["done"] = True
+                degisti = True
+            continue
+        baz = k["baz"]
+        fark = (son - baz) / baz * 100
+        if kap_kodlari is None:
+            kap_kodlari = kap_son24_kodlar(saat=48)
+        haber = "EVET — hareketi haber doğruladı" if k["kod"] in kap_kodlari else "HAYIR — hareket habersiz kaldı"
+        emoji = "📈" if fark > 0 else ("📉" if fark < 0 else "➖")
+        telegram_gonder(
+            f"📊 RADAR 48-SAAT SONUCU\n"
+            f"🏢 {k.get('desc', '')} ({k['kod']})\n"
+            f"💰 Uyarı kapanışı: {baz:.2f} TL → 48s: {son:.2f} TL\n"
+            f"{emoji} Değişim: {fark:+.2f}%\n"
+            f"📰 Arada KAP haberi düştü mü? {haber}")
+        k["son"] = son
+        k["fark"] = round(fark, 2)
+        k["done"] = True
+        degisti = True
+        print("Radar sonucu gönderildi:", k["kod"], f"{fark:+.2f}%")
+    if degisti:
+        radar_track_yaz(liste)
+
 def radar_tur(manuel=False):
     simdi = datetime.now(TRT)
+    radar_takip_kontrol()   # 48s sonucları her turda kontrol edilir (hafta sonu dahil)
     if not manuel and not seans_icinde_mi():
         print("Seans disinda, radar uyuyor.")
         return
@@ -153,8 +222,17 @@ def radar_tur(manuel=False):
         alerts[kod] = simdi.isoformat()
         gonderilen += 1
         print("Radar uyarsi:", kod, f"{change:+.1f}%")
+        try:
+            lt = radar_track_oku()
+            lt.append({"kod": kod, "desc": desc, "baz": float(close),
+                       "degisim": change,
+                       "hedef_t": (simdi + timedelta(hours=48)).isoformat(),
+                       "done": False})
+            radar_track_yaz(lt)
+            print("Radar takibe eklendi:", kod)
+        except (TypeError, ValueError):
+            pass
 
-    # 7 gunden eski susma kayitlarini temizle
     alerts = {k: v for k, v in alerts.items()
               if simdi - datetime.fromisoformat(v) < timedelta(days=7)}
     state["alerts"] = alerts
@@ -166,9 +244,9 @@ def radar_tur(manuel=False):
             kod = item.get("s", "?")
             d = item.get("d", [])
             dur = "haber VAR" if kod in kap_kodlari else "haber YOK"
-                try:
+            try:
                 yuzde = f"%{float(d[2]):.1f}"
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, IndexError):
                 yuzde = "?"
             satirlar.append(f"• {kod} | {d[0] if d else '?'} | {yuzde} | KAP 24h: {dur}")
         telegram_gonder("\n".join(satirlar))

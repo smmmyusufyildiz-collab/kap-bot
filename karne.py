@@ -7,7 +7,7 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 CHAT_ID        = os.environ.get("CHAT_ID", "")
 TRT = timezone(timedelta(hours=3))
 CALLS_FILE = "cagrilar.json"
-BENCH_ADAYLARI = ["^XU100", "^XU100.IS", "XU100.IS"]   # BIST 100 adaylari
+BENCH_ADAYLARI = ["^XU100", "^XU100.IS", "XU100.IS"]
 GUN = 10
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"}
@@ -58,17 +58,22 @@ def olcu(c, bench):
             break
     if baz is None:
         return None
-    pencere = [x for x in b if baz_dt < x[0] <= baz_dt + timedelta(days=16)][:GUN]
+    gun_sayisi = int(c.get("pencere", GUN))
+    ust_sinir = baz_dt + timedelta(days=int(gun_sayisi * 1.5) + 5)
+    pencere = [x for x in b if baz_dt < x[0] <= ust_sinir][:gun_sayisi]
+    soylenen = c.get("soylenen")
+    soy_fark = ((baz - soylenen) / soylenen * 100) if soylenen else None
+    promise = ((c["direnç"] - baz) / baz * 100) if c.get("direnç") else None
     if not pencere:
         return {"kod": c["kod"], "baz": baz, "son": baz, "getiri": 0.0, "alfa": 0.0,
                 "direnc_gordu": False, "destek_kirildi": False, "stop_gordu": False,
                 "ustte": bool(c.get("direnç")) and baz > c["direnç"],
+                "soy_fark": soy_fark, "promise": promise,
                 "gun": 0, "olgun": False, "bench": None}
     maks = max(x[1] for x in pencere)
     minm = min(x[2] for x in pencere)
     son = pencere[-1][3]
     son_dt = pencere[-1][0]
-    # ayni pencerede piyasa getirisi
     bench_getiri = None
     if bench:
         bb = [x for x in bench if x[0] <= baz_dt]
@@ -83,7 +88,8 @@ def olcu(c, bench):
         "destek_kirildi": bool(c.get("destek")) and baz >= c["destek"] and minm < c["destek"],
         "stop_gordu": bool(c.get("stop")) and minm <= c["stop"],
         "ustte": bool(c.get("direnç")) and baz > c["direnç"],
-        "gun": len(pencere), "olgun": len(pencere) >= GUN, "bench": bench_getiri,
+        "soy_fark": soy_fark, "promise": promise,
+        "gun": len(pencere), "olgun": len(pencere) >= gun_sayisi, "bench": bench_getiri,
     }
 
 cagrilar = json.load(open(CALLS_FILE, encoding="utf-8")) if os.path.exists(CALLS_FILE) else []
@@ -93,54 +99,60 @@ for aday in BENCH_ADAYLARI:
     if bench:
         print("Bench sembolu calisti:", aday)
         break
-sonuclar = [m for m in (olcu(c, bench) for c in cagrilar) if m]
-if not sonuclar:
+
+pairler = [(c, olcu(c, bench)) for c in cagrilar]
+pairler = [(c, m) for c, m in pairler if m]
+if not pairler:
     telegram_gonder("🧾 Grup karnesi: veri alinamadi.")
     raise SystemExit
 
-satirlar = ["🧾 GRUP KARNESİ v2 — 7 Eylül çağrıları, ilk 10 işlem günü (piyasa kıyaslı)"]
-dg = dk = sg = 0
-getiriler = []
-alfalar = []
-bench_deger = None
-for m in sonuclar:
-    etiket = []
-    if m["direnc_gordu"]:
-        etiket.append("🚀 direnç görüldü")
-        dg += 1
-    if m["destek_kirildi"]:
-        etiket.append("💥 destek kırıldı")
-        dk += 1
-    if m["stop_gordu"]:
-        etiket.append("🛑 stop tetiklendi")
-        sg += 1
-    if m["ustte"]:
-        etiket.append("⬆️ çağrıda zaten direncin üstündeydi")
-    if not etiket:
-        etiket.append("➖ bant içinde")
-    olgunluk = "" if m["olgun"] else f" ({m['gun']}. gün)"
-    if m["bench"] is not None:
-        bench_deger = m["bench"]
-    satirlar.append(f"• {m['kod']}: {m['baz']:.2f} → {m['son']:.2f} ({m['getiri']:+.1f}%, alfa {m['alfa']:+.1f}%) | {' | '.join(etiket)}{olgunluk}")
-    getiriler.append(m["getiri"])
-    alflar = alfalar  # yer tutucu
-    alfalar.append(m["alfa"])
+partiler = {}
+for c, m in pairler:
+    anahtar = (c.get("tarih", "?"), c.get("kaynak", "?"))
+    partiler.setdefault(anahtar, []).append((c, m))
 
-ort = sum(getiriler) / len(getiriler)
-ort_alfa = sum(alfalar) / len(alfalar)
-satirlar.append(f"📊 TOPLU: {len(sonuclar)} çağrı | direnç: {dg} | destek kıran: {dk} | stop: {sg}")
-bench_txt = f"{bench_deger:+.2f}%" if bench_deger is not None else "veri yok"
-satirlar.append(f"📈 Çağrı ort.: {ort:+.2f}% | 📉 Piyasa (BIST100) aynı pencere: {bench_txt} | ⚖️ ALFA: {ort_alfa:+.2f}%")
-if len(sonuclar) >= 5:
-    if bench_deger is None:
-        satirlar.append("💬 Yorum: Piyasa verisi alinamadi; ham getiriye gore: " + ("kayip bolgesi, temkinli ol." if ort < 0 else "pozitif bolge."))
-    elif ort_alfa > 2:
-        satirlar.append("💬 Yorum: Çağrılar piyasayı belirgin yendi — marifet sinyali var.")
-    elif ort_alfa >= -2:
-        satirlar.append("💬 Yorum: Çağrılar piyasanla aynı sürüklendi — olağanüstü hafta etkisi ayrıştırıldı; belirgin marifet ya da belirgin beceriksizlik yok.")
-    else:
-        satirlar.append("💬 Yorum: Piyasadan DAHA kötü — grubun katma değeri negatif, temkinli ol.")
-satirlar.append("📅 Not: Pencere piyasa geneli olağanüstü hareketleri içerir; alfa sütunu onları ayrıştırır.")
+satirlar = ["🧾 GRUP KARNESİ v3 — parti parti, piyasa kıyaslı performans"]
+for (tarih, kaynak), items in sorted(partiler.items()):
+    satirlar.append(f"━━ {tarih} | {kaynak} ━━")
+    getiriler = []
+    alfalar = []
+    hedef_goren = 0
+    bench_deger = None
+    for c, m in items:
+        etiket = []
+        if m["direnc_gordu"]:
+            etiket.append("🎯 hedef/direnç görüldü")
+            hedef_goren += 1
+        if m["destek_kirildi"]:
+            etiket.append("💥 destek kırıldı")
+        if m["stop_gordu"]:
+            etiket.append("🛑 stop tetiklendi")
+        if m["ustte"]:
+            etiket.append("⬆️ zaten hedefin üstündeydi")
+        if not etiket:
+            etiket.append("➖ yolculuk sürüyor")
+        uyari = ""
+        if m["soy_fark"] is not None and abs(m["soy_fark"]) > 2:
+            uyari = f" ⚠️ söylenen fiyat gerçekle uyuşmuyor ({m['soy_fark']:+.1f}%)"
+        promise_txt = f", vaat {m['promise']:+.0f}%" if m["promise"] is not None else ""
+        olgunluk = "" if m["olgun"] else f" ({m['gun']}. gün)"
+        if m["bench"] is not None:
+            bench_deger = m["bench"]
+        satirlar.append(f"• {m['kod']}: {m['baz']:.2f} → {m['son']:.2f} ({m['getiri']:+.1f}%, alfa {m['alfa']:+.1f}{promise_txt}) | {' | '.join(etiket)}{olgunluk}{uyari}")
+        getiriler.append(m["getiri"])
+        alfalar.append(m["alfa"])
+    ort = sum(getiriler) / len(getiriler)
+    ort_alfa = sum(alfalar) / len(alfalar)
+    bench_txt = f"{bench_deger:+.2f}%" if bench_deger is not None else "veri yok"
+    satirlar.append(f"📊 Parti: {len(items)} çağrı | hedef gören: {hedef_goren} | ort. {ort:+.2f}% | piyasa {bench_txt} | ALFA {ort_alfa:+.2f}%")
+    if len(items) >= 5 and bench_deger is not None:
+        if ort_alfa > 2:
+            satirlar.append("💬 Bu parti piyasayı belirgin yendi — marifet sinyali.")
+        elif ort_alfa >= -2:
+            satirlar.append("💬 Bu parti piyasayla aynı sürüklendi — belirgin marifet yok.")
+        else:
+            satirlar.append("💬 Bu parti piyasadan DAHA kötü — katma değer negatif.")
+satirlar.append("📅 Not: Hedef çağrıları 20 işlem günü, seviye çağrıları 10 gün üzerinden ölçülür; alfa piyasa etkisini ayrıştırır.")
 satirlar.append("🔎 Bu bir performans ölçümüdür, yatırım tavsiyesi değildir.")
 telegram_gonder("\n".join(satirlar))
-print("Karne v2 gonderildi")
+print("Karne v3 gonderildi")

@@ -38,5 +38,6 @@ jobs:
             echo "Degisiklik yok."
           else
             git commit -m "radar: durum guncellendi"
+            git pull --rebase origin main || true
             git push
           fi

@@ -16,9 +16,10 @@ MIN_SCORE = 7
 TAKIP     = []
 
 STATE_FILE = "state.json"
+TRACK_FILE = "track.json"
 KAP_URL    = "https://www.kap.org.tr/tr/bildirim-sorgu-sonuc?srcbar=Y&cmp=Y&cat=4"
 AI_HATA = ""
-TRT = timezone(timedelta(hours=3))   # Turkiye saati
+TRT = timezone(timedelta(hours=3))
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -71,18 +72,22 @@ def seans_etiketi(dt):
         return "SEANS İÇİ"
     return "SEANS DIŞI"
 
-def mesaj_kur(b, p):
+def kod_bul(b, p):
+    kod = str((p or {}).get("kod", "")).strip().upper()
+    if kod and kod in b["metin"].upper():
+        return kod
+    return ""
+
+def mesaj_kur(b, p, baz=None):
     dt = tarih_cozun(b["tarih"])
     simdi = datetime.now(TRT)
     dk = int((simdi - dt).total_seconds() // 60) if dt else "?"
     if dk == 0:
         dk = "00"
     seans = seans_etiketi(dt) if dt else "?"
-    kod = str(p.get("kod", "")).strip().upper()
-    if kod and kod not in b["metin"].upper():
-        kod = ""   # AI'nin kodu satirla eslesmezse kullanma
+    kod = kod_bul(b, p)
     ust = f"{kod} – {b['tarih']} – {seans} – {b['baslik']}" if kod else f"{b['tarih']} – {seans} – {b['baslik']}"
-    return (
+    msg = (
         f"⏱ KAP {dk} Dakika\n"
         f"🏢 {b['sirket']}\n"
         f"📰 {ust}\n\n"
@@ -91,9 +96,101 @@ def mesaj_kur(b, p):
         f"📈 Olası etki: {p.get('etki', '')}\n"
         f"⚠️ En önemli risk/karşı argüman: {p.get('risk', '')}\n"
         f"🧠 AI etki puanı: {p.get('puan', '?')}/10\n"
-        f"🔗 Doğrudan KAP bildirimi: https://www.kap.org.tr/tr/bildirim-sorgu"
     )
+    if baz:
+        msg += f"📊 Takip başladı: baz kapanış {baz:.2f} TL — 48s sonra değişimi bildireceğim.\n"
+    msg += "🔗 Doğrudan KAP bildirimi: https://www.kap.org.tr/tr/bildirim-sorgu"
+    return msg
 
+# ---------------- FİYAT KAYNAĞI (Yahoo Finance) ----------------
+def yahoo_bars(kod):
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{kod}.IS"
+    r = requests.get(url, params={"range": "1mo", "interval": "1d"},
+                     headers={"User-Agent": HEADERS["User-Agent"]}, timeout=30)
+    r.raise_for_status()
+    res = r.json()["chart"]["result"][0]
+    ts = res.get("timestamp", [])
+    closes = res["indicators"]["quote"][0].get("close", [])
+    bars = []
+    for t, c in zip(ts, closes):
+        if c is None:
+            continue
+        bars.append((datetime.fromtimestamp(t, TRT), float(c)))
+    return bars
+
+def baz_kapanis(kod, dt_haber):
+    """Haber anindan onceki son gunluk kapanis."""
+    try:
+        secili = None
+        for dt, c in yahoo_bars(kod):
+            if dt.date() < dt_haber.date() or (dt.date() == dt_haber.date() and dt_haber.hour >= 18):
+                secili = c
+        return secili
+    except Exception as e:
+        print("Baz kapanis alinamadi:", kod, temizle(e))
+        return None
+
+def son_kapanis(kod):
+    try:
+        bars = yahoo_bars(kod)
+        return bars[-1][1] if bars else None
+    except Exception as e:
+        print("Son kapanis alinamadi:", kod, temizle(e))
+        return None
+
+# ---------------- TAKİP DEFTERİ ----------------
+def track_oku():
+    try:
+        with open(TRACK_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+def track_yaz(l):
+    with open(TRACK_FILE, "w", encoding="utf-8") as f:
+        json.dump(l, f, ensure_ascii=False)
+
+def takipleri_kontrol_et():
+    liste = track_oku()
+    if not liste:
+        return
+    simdi = datetime.now(TRT)
+    degisti = False
+    for k in liste:
+        if k.get("done"):
+            continue
+        try:
+            hedef = datetime.fromisoformat(k["hedef_t"])
+        except Exception:
+            k["done"] = True
+            degisti = True
+            continue
+        if simdi < hedef:
+            continue
+        son = son_kapanis(k["kod"])
+        if son is None:
+            if simdi > hedef + timedelta(days=5):
+                k["done"] = True
+                degisti = True
+                telegram_gonder(f"📊 48-saat takibi: {k['kod']} için fiyat verisi alınamadı, takip kapatıldı.")
+            continue
+        baz = k["baz"]
+        fark = (son - baz) / baz * 100
+        emoji = "📈" if fark > 0 else ("📉" if fark < 0 else "➖")
+        telegram_gonder(
+            f"📊 48-SAAT TAKİP RAPORU\n"
+            f"🏢 {k['kod']}\n"
+            f"📰 Haber: {k['baslik'][:80]}\n"
+            f"💰 Baz kapanış: {baz:.2f} TL\n"
+            f"💰 48s kapanış: {son:.2f} TL\n"
+            f"{emoji} Değişim: {fark:+.2f}%")
+        k["done"] = True
+        degisti = True
+        print("Takip raporu gönderildi:", k["kod"], f"{fark:+.2f}%")
+    if degisti:
+        track_yaz(liste)
+
+# ---------------- KAP OKUYUCU ----------------
 def kap_bildirim_cek():
     try:
         r = requests.get(KAP_URL, headers=HEADERS, timeout=60)
@@ -119,7 +216,6 @@ def kap_bildirim_cek():
                     break
             adaylar = [h for h in hucreler if len(h) > 15 and "A.Ş." not in h and not re.search(r"\d{1,2}:\d{2}", h)]
             baslik = max(adaylar, key=len) if adaylar else metin[:120]
-            # KALICI MUREKKEP: im sadece degismeyen uc alandan hesaplanir
             sonuc.append({"fp": parmak_izi(tarih + "|" + sirket + "|" + baslik),
                           "tarih": tarih, "sirket": sirket, "baslik": baslik, "metin": metin})
         return sonuc
@@ -287,42 +383,56 @@ if manuel_test and bildirimler:
         p0 = next((x for x in puanlar if x.get("no") == 1), puanlar[0])
         telegram_gonder("🎬 FORMAT ÖNİZLEME (gercek satirdan):\n" + mesaj_kur(bildirimler[0], p0))
 
+# 48 SAAT TAKİPLERİNİN KONTROLÜ (her turda)
+takipleri_kontrol_et()
+
 # NORMAL AKIS
 if yeni:
     print(f"{len(yeni)} yeni bildirim var")
     puanlar = yapay_zeka_puanla([(b["sirket"], b["baslik"], b["tarih"]) for b in yeni])
     gonderilen = 0
     for sira, b in enumerate(yeni, start=1):
+        gonderilecek = False
+        p = None
         if kritik_var(b["metin"]):
             p = next((x for x in (puanlar or []) if x.get("no") == sira), None) or {}
-            if p:
-                telegram_gonder(mesaj_kur(b, p))
-            else:
-                telegram_gonder(
-                    f"⚡ ÖNEMLİ KAP BİLDİRİMİ (kritik kelime)\n"
-                    f"🏢 {b['sirket']}\n📰 {b['baslik']}\n🕐 {b['tarih']}\n"
-                    f"🔗 https://www.kap.org.tr/tr/bildirim-sorgu")
-            gonderilen += 1
-            print("Iletildi (kritik):", b["sirket"], "-", b["baslik"])
-            continue
-        if puanlar:
-            p = next((x for x in puanlar if x.get("no") == sira), None)
+            gonderilecek = True
+        elif puanlar:
+            aday = next((x for x in puanlar if x.get("no") == sira), None)
             try:
-                puan_f = float(p.get("puan")) if p else None
+                puan_f = float(aday.get("puan")) if aday else None
             except (TypeError, ValueError):
                 puan_f = None
             if puan_f is not None and puan_f >= MIN_SCORE:
-                telegram_gonder(mesaj_kur(b, p))
-                gonderilen += 1
-                print(f"Iletildi (puan {puan_f}):", b["sirket"], "-", b["baslik"])
+                p = aday
+                gonderilecek = True
+        elif anahtar_var(b["metin"]):
+            gonderilecek = True
+        if not gonderilecek:
+            continue
+
+        kod = kod_bul(b, p)
+        dt = tarih_cozun(b["tarih"])
+        baz = baz_kapanis(kod, dt) if (kod and dt) else None
+
+        if p:
+            telegram_gonder(mesaj_kur(b, p, baz))
         else:
-            if anahtar_var(b["metin"]):
-                telegram_gonder(
-                    f"⚡ ÖNEMLİ KAP BİLDİRİMİ (anahtar kelime)\n"
-                    f"🏢 {b['sirket']}\n📰 {b['baslik']}\n🕐 {b['tarih']}\n"
-                    f"🔗 https://www.kap.org.tr/tr/bildirim-sorgu")
-                gonderilen += 1
-                print("Iletildi (anahtar):", b["sirket"], "-", b["baslik"])
+            ek = f"\n📊 Takip başladı: baz kapanış {baz:.2f} TL — 48s sonra bildireceğim." if baz else ""
+            telegram_gonder(
+                f"⚡ ÖNEMLİ KAP BİLDİRİMİ (kritik kelime)\n"
+                f"🏢 {b['sirket']}\n📰 {b['baslik']}\n🕐 {b['tarih']}{ek}\n"
+                f"🔗 https://www.kap.org.tr/tr/bildirim-sorgu")
+        gonderilen += 1
+        print("Iletildi:", b["sirket"], "-", b["baslik"])
+
+        if kod and dt and baz:
+            liste = track_oku()
+            liste.append({"kod": kod, "baz": baz,
+                          "hedef_t": (dt + timedelta(hours=48)).isoformat(),
+                          "baslik": b["baslik"], "done": False})
+            track_yaz(liste)
+            print("Takip defterine eklendi:", kod, "baz:", f"{baz:.2f}")
     print(f"{gonderilen} haber iletildi")
     if bildirimler:
         state_yaz({"marker": bildirimler[0]["fp"]})

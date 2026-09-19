@@ -100,8 +100,9 @@ for aday in BENCH_ADAYLARI:
         print("Bench sembolu calisti:", aday)
         break
 
-pairler = [(c, olcu(c, bench)) for c in cagrilar]
-pairler = [(c, m) for c, m in pairler if m]
+ham = [(c, olcu(c, bench)) for c in cagrilar]
+beklemede = [c for c, m in ham if m is None]
+pairler = [(c, m) for c, m in ham if m]
 if not pairler:
     telegram_gonder("🧾 Grup karnesi: veri alinamadi.")
     raise SystemExit

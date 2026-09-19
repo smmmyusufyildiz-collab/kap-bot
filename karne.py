@@ -22,7 +22,8 @@ def telegram_gonder(mesaj):
 
 def bars_sym(sym):
     try:
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}"
+        sym_enc = requests.utils.quote(sym, safe=".")
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym_enc}"
         r = requests.get(url, params={"range": "6mo", "interval": "1d"}, headers=HEADERS, timeout=30)
         r.raise_for_status()
         res = r.json()["chart"]["result"][0]

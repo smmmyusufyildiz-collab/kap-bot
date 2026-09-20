@@ -55,13 +55,12 @@ def kivilcim(kod):
     """Gun icinde acilistan itibaren degisim %; pozitifse donus kivilcimi."""
     try:
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{kod}.IS"
-        r = requests.get(url, params={"range": "1d", "interval": "5m"}, headers=HEADERS, timeout=20)
+        r = requests.get(url, params={"range": "5d", "interval": "1d"}, headers=HEADERS, timeout=20)
         r.raise_for_status()
-        meta = r.json()["chart"]["result"][0]["meta"]
-        acilis = meta.get("regularMarketOpen")
-        fiyat = meta.get("regularMarketPrice")
-        if acilis and fiyat:
-            return (fiyat - acilis) / acilis * 100
+        q = r.json()["chart"]["result"][0]["indicators"]["quote"][0]
+        for o, c in reversed(list(zip(q.get("open", []), q.get("close", [])))):
+            if o and c:
+                return (c - o) / o * 100
     except Exception as e:
         print("Kivilcim hesabi hatasi:", kod, e)
     return None

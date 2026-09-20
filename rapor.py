@@ -60,6 +60,7 @@ it, bt = istatistik(tab)
 satirlar = ["🧠 HAFTALIK ÖZ-DEĞERLENDİRME RAPORU"]
 satirlar.append(blok("KAP sinyalleri", "📚", ik, bk))
 satirlar.append(blok("Radar sinyalleri", "📡", ir, br))
+satirlar.append(blok("Taban dönüş adayları", "🔄", it, bt))
 
 tum = [k for k in kap + rad if k.get("fark") is not None]
 if tum:

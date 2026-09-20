@@ -55,7 +55,8 @@ rad = oku("radar_track.json")
 tab = oku("taban_track.json")
 ik, bk = istatistik(kap)
 ir, br = istatistik(rad)
-it, bt = istatistik(tab)
+it, bt = istatistik([k for k in tab if k.get("tip") != "kivilcim"])
+ikv, bkv = istatistik([k for k in tab if k.get("tip") == "kivilcim"])
 
 satirlar = ["🧠 HAFTALIK ÖZ-DEĞERLENDİRME RAPORU"]
 satirlar.append(blok("KAP sinyalleri", "📚", ik, bk))

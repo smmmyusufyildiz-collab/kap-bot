@@ -1,0 +1,47 @@
+name: Taban Donus Radari
+
+on:
+  schedule:
+    - cron: "*/15 6-15 * * 1-5"
+  workflow_dispatch:
+
+concurrency:
+  group: taban-tektir
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  taban:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repoyu indir
+        uses: actions/checkout@v4
+
+      - name: Python kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Kutuphaneleri kur
+        run: pip install requests beautifulsoup4
+
+      - name: Taban taramasi
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: python taban.py
+
+      - name: Durumu kaydet
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add taban_state.json taban_track.json 2>/dev/null || true
+          if git diff --staged --quiet; then
+            echo "Degisiklik yok."
+          else
+            git commit -m "taban: durum guncellendi"
+            git pull --rebase origin main || true
+            git push
+          fi

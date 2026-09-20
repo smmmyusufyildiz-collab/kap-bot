@@ -73,10 +73,12 @@ def supertrend(b):
         line[i] = fl[i] if dirn[i] == 1 else fu[i]
     return dirn, line
 
-def pano():
+def pano(manuel=False):
     simdi = datetime.now(TRT)
     if simdi.weekday() >= 5:
         print("Hafta sonu pano yok.")
+        if manuel:
+            tg("🐂 PANO TEST: hafta sonu — pano yalnızca iş günleri 18:15'te konuşur. Pazartesi görüşürüz.")
         return
     try:
         body = {
@@ -91,6 +93,8 @@ def pano():
         data = r.json().get("data", [])
     except Exception as e:
         print("Scanner hatasi:", e)
+        if manuel:
+            tg(f"🐂 PANO TEST: tarayıcıya ulaşılamadı ({e.__class__.__name__}). Bir sonraki turda yeniden denenecek.")
         return
     taze = []
     trend = []
@@ -127,4 +131,4 @@ def pano():
     tg("\n".join(satirlar))
     print("Pano gonderildi:", len(taze), "taze,", len(trend), "trend")
 
-pano()
+pano(manuel=(os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"))

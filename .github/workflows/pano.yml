@@ -1,0 +1,31 @@
+name: Gunluk Al Sinyali Panosu
+
+on:
+  schedule:
+    - cron: "15 15 * * 1-5"
+  workflow_dispatch:
+
+concurrency:
+  group: pano-tektir
+  cancel-in-progress: false
+
+jobs:
+  pano:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repoyu indir
+        uses: actions/checkout@v4
+
+      - name: Python kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Kutuphaneleri kur
+        run: pip install requests
+
+      - name: Panoyu gonder
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: python pano.py

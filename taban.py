@@ -176,6 +176,7 @@ def tur(manuel=False):
     kap_kodlari = kap_son24_kodlar()
     state = oku(STATE, {})
     gonderilen = 0
+    sessiz = 0
     for item in adaylar:
         if gonderilen >= 5:
             break
@@ -187,6 +188,7 @@ def tur(manuel=False):
         if son_u:
             try:
                 if simdi - datetime.fromisoformat(son_u) < timedelta(hours=SESSIZLIK_SAAT):
+                    sessiz += 1
                     continue
             except Exception:
                 pass
@@ -219,8 +221,11 @@ def tur(manuel=False):
         yaz(TRACK, lt)
         print("Aday:", kod, "tip:", tip)
     yaz(STATE, state)
-    if manuel and gonderilen == 0:
-        telegram_gonder("🔄 TABAN RADARI TEST: şu an filtrelerine uyan aday yok (ekran boş).")
+        if manuel and gonderilen == 0:
+        if sessiz:
+            telegram_gonder(f"🔄 TABAN RADARI TEST: ekranda {sessiz} aday var ama hepsi son 24 saatte bildirildi (susma kuralı). Yeni 🔥 kıvılcımlar için seans içini bekle.")
+        else:
+            telegram_gonder("🔄 TABAN RADARI TEST: şu an filtrelerine uyan aday yok (ekran boş).")
     print(f"{gonderilen} aday bildirildi")
 
 tur(manuel=(os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"))

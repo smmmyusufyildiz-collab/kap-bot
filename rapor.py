@@ -52,8 +52,10 @@ def blok(ad, emoji, ist, bek):
 
 kap = oku("track.json")
 rad = oku("radar_track.json")
+tab = oku("taban_track.json")
 ik, bk = istatistik(kap)
 ir, br = istatistik(rad)
+it, bt = istatistik(tab)
 
 satirlar = ["🧠 HAFTALIK ÖZ-DEĞERLENDİRME RAPORU"]
 satirlar.append(blok("KAP sinyalleri", "📚", ik, bk))

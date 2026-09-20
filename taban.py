@@ -41,6 +41,7 @@ def tarama_taban():
             {"left": "RSI", "operation": "greater", "right": 25},
             {"left": "RSI", "operation": "less", "right": 50},
             {"left": "relative_volume_10d_calc", "operation": "greater", "right": 1.5},
+            {"left": "Volatility.D", "operation": "greater", "right": 5},
             {"left": "volume", "operation": "greater", "right": 50000},
         ],
         "sort": {"sortBy": "relative_volume_10d_calc", "sortOrder": "desc"},
@@ -195,6 +196,13 @@ def tur(manuel=False):
             except Exception:
                 pass
         desc, close, change, rsi, vol, rvol = d[0], d[1], d[2], d[3], d[4], d[5]
+        try:
+            close_f = float(close)
+            vol_f = float(vol)
+        except (TypeError, ValueError):
+            continue
+        if close_f * vol_f < 5_000_000:
+            continue
         spark = kivilcim(kod)
         kiv = spark is not None and spark > 0
         tip = "kivilcim" if kiv else "taban"

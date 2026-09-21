@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import time
 import requests
 from datetime import datetime, timedelta, timezone
 from bs4 import BeautifulSoup
@@ -54,16 +55,19 @@ def tarama_taban():
 
 def kivilcim(kod):
     """Gun icinde acilistan itibaren degisim %; pozitifse donus kivilcimi."""
-    try:
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{kod}.IS"
-        r = requests.get(url, params={"range": "5d", "interval": "1d"}, headers=HEADERS, timeout=20)
-        r.raise_for_status()
-        q = r.json()["chart"]["result"][0]["indicators"]["quote"][0]
-        for o, c in reversed(list(zip(q.get("open", []), q.get("close", [])))):
-            if o and c:
-                return (c - o) / o * 100
-    except Exception as e:
-        print("Kivilcim hesabi hatasi:", kod, e)
+    for deneme in range(2):
+        try:
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{kod}.IS"
+            r = requests.get(url, params={"range": "5d", "interval": "1d"}, headers=HEADERS, timeout=20)
+            r.raise_for_status()
+            q = r.json()["chart"]["result"][0]["indicators"]["quote"][0]
+            for o, c in reversed(list(zip(q.get("open", []), q.get("close", [])))):
+                if o and c:
+                    return (c - o) / o * 100
+            return None
+        except Exception as e:
+            print("Kivilcim deneme hatasi:", kod, deneme, e)
+            time.sleep(3)
     return None
 
 def kap_son24_kodlar():
@@ -144,15 +148,12 @@ def takip_kontrol():
             continue
         baz = k["baz"]
         fark = (son - baz) / baz * 100
-        emoji = "📈" if fark > 0 else ("📉" if fark < 0 else "➖")
-        bas = "🔥 KIVILCIM" if k.get("tip") == "kivilcim" else "🔄 TABAN"
         telegram_gonder(
-            f"📊 {bas} STRATEJİSİ 48-SAAT SONUCU\n"
-            f"🏢 {k.get('desc', '')} ({k['kod']})\n"
-            f"📉 Adayken: {k['degisim']:+.1f}% | baz {baz:.2f} TL\n"
-            f"💰 48s kapanış: {son:.2f} TL\n"
-            f"{emoji} Sonuç: {fark:+.2f}%\n"
-            f"📒 Deftere işlendi: haftalık karnede kendi hanesine yazılacak.")
+            f"📊 48-SAAT SONUCU — {k['kod']}\n"
+            f"🏢 {k.get('desc', '')}\n"
+            f"💬 Özünde: Listeye girerken {baz:.2f} TL idi; 48 saat sonra {son:.2f} TL oldu ({fark:+.2f}%).\n"
+            f"📒 Deftere yazıldı: haftalık karnede kendi hanesine işlenecek.\n"
+            f"❓ Ne yapmalı: Hiçbir şey; bu bir sonuç bildirimidir, tavsiye değildir.")
         k["son"] = son
         k["fark"] = round(fark, 2)
         k["done"] = True
@@ -207,25 +208,34 @@ def tur(manuel=False):
         kiv = spark is not None and spark > 0
         tip = "kivilcim" if kiv else "taban"
         haber_var = kod in kap_kodlari
-        haber_txt = "VAR → düşüşün bir haber nedeni olabilir" if haber_var else "YOK → düşüş habersiz (panik/sektör)"
+        haber_txt = "VAR → düşüşün bir haber nedeni var" if haber_var else "YOK → düşüş habersiz (panik/sektör)"
         if kiv:
-            baslik = "🔥 İLK KIVILCIM — TABANDAN DÖNÜŞTE İLK YEŞİL"
-            kiv_satir = f"🌱 Açılıştan değişim: {spark:+.1f}% → gün içi dönüş tetiği YANDI\n"
+            baslik = f"🔥 DÖNÜŞ KIVILCIMI YANDI — {kod}"
+            orta = (f"💬 Özünde: Gün içinde hâlâ ekside ama açılış fiyatına göre YEŞİLE döndü ({spark:+.1f}%). "
+                    f"Beklediğimiz teyit işareti bu.\n")
+            yap = ("Düşünüyorsan: önce benden karar kartı iste; küçük boyut, stop önceden belli. "
+                   "Bu mesaj gözlemdir, tavsiye değildir.")
         else:
-            baslik = "🔄 TABAN DÖNÜŞ ADAYI"
-            kiv_satir = f"🌱 Açılıştan değişim: {spark:+.1f}% → tetik henüz yok, havuzda izleniyor\n" if spark is not None else ""
+            baslik = f"🔄 UCUZ İZLEME (taban dönüş) — {kod}"
+            if spark is not None:
+                orta = (f"💬 Özünde: Bugün {change:+.1f}% düştü, haber YOK; hacim {rvol:.1f}x (normalden biraz yüksek). "
+                        f"Dönüş kıvılcımı henüz yanmadı (açılışa göre {spark:+.1f}%).\n")
+            else:
+                orta = (f"💬 Özünde: Bugün {change:+.1f}% düştü, haber YOK; hacim {rvol:.1f}x. "
+                        f"Dönüş kıvılcımı şu an hesaplanamadı; sonraki turda yine bakacağım.\n")
+            yap = "Şimdilik hiçbir şey. Kıvılcım yanarsa 🔥 mesajı göndereceğim; ancak o mesaj geldiğinde düşün."
         telegram_gonder(
             f"{baslik}\n"
-            f"🏢 {desc} ({kod})\n"
-            f"📉 {change:+.1f}% | Fiyat: {close} TL | RSI: {rsi:.0f} | Göreceli hacim: {rvol:.1f}x\n"
-            f"{kiv_satir}"
+            f"🏢 {desc}\n"
+            f"📉 Fiyat: {close} TL | RSI: {rsi:.0f} | Göreceli hacim: {rvol:.1f}x\n"
+            f"{orta}"
             f"📰 KAP (24s): {haber_txt}\n"
-            f"🎯 Strateji: RSI 25-50 + hacim ilgisi" + (" + açılıştan yeşil = onaylı giriş sinyali" if kiv else "; kıvılcım bekleniyor") + "; stop disiplini şart.\n"
-            f"📊 Ölçüme alındı: 48s sonra sonuç raporu.")
+            f"❓ Ne yapmalı: {yap}\n"
+            f"📊 Deftere alındı: 48 saat sonra sonucu kendim raporlayacağım.")
         state[kod] = simdi.isoformat()
         gonderilen += 1
         lt = oku(TRACK, [])
-        lt.append({"kod": kod, "desc": desc, "baz": float(close), "degisim": float(change),
+        lt.append({"kod": kod, "desc": desc, "baz": close_f, "degisim": float(change),
                    "tip": tip,
                    "hedef_t": (simdi + timedelta(hours=48)).isoformat(), "done": False})
         yaz(TRACK, lt)
@@ -235,7 +245,7 @@ def tur(manuel=False):
         if sessiz:
             telegram_gonder(f"🔄 TABAN RADARI TEST: ekranda {sessiz} aday var ama hepsi son 24 saatte bildirildi (susma kuralı). Yeni 🔥 kıvılcımlar için seans içini bekle.")
         else:
-            telegram_gonder("🔄 TABAN RADARI TEST: şu an filtrelerine uyan aday yok (ekran boş).")
+            telegram_gonder(" TABAN RADARI TEST: şu an filtrelerine uyan aday yok (ekran boş).")
     print(f"{gonderilen} aday bildirildi, {sessiz} aday susma kuralinda")
 
 tur(manuel=(os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"))

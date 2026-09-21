@@ -41,16 +41,25 @@ def yaz(path, veri):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(veri, f, ensure_ascii=False)
 
-def seviye_kontrol(kod, tip, seviye, p, esik_alt, esik_ust, emoji_baslik):
-    """Seviye test/kirilim olayi uretir."""
-    if seviye is None:
-        return None
-    oran = p / seviye
-    if oran < esik_alt:
-        return ("kirilmis", f"{emoji_baslik[1]} Seviye KIRILDI: {p:.2f} TL < {seviye:.2f} TL")
-    if oran <= esik_ust:
-        return ("test", f"{emoji_baslik[0]} Seviye TEST: {p:.2f} TL ≈ {seviye:.2f} TL (uzaklık %{(oran - 1) * 100:+.1f})")
-    return None
+def olaylari_bul(w, p):
+    olaylar = []
+    stop = w.get("stop")
+    if stop and p <= stop:
+        olaylar.append(("stop", f"Fiyat ({p:.2f} TL) stop çizgisine ({stop:.2f} TL) indi veya altına geçti."))
+    for sev in (w.get("destek"), w.get("destek2")):
+        if not sev or p < sev * 0.5:
+            continue
+        if p < sev * 0.98:
+            olaylar.append(("kirilmis", f"Fiyat ({p:.2f} TL) destek çizgisinin ({sev:.2f} TL) altına düştü: destek KIRILDI."))
+        elif p <= sev * 1.01:
+            olaylar.append(("test", f"Fiyat ({p:.2f} TL) destek çizgisine ({sev:.2f} TL) dayandı: kırılmadı, sadece dokunuyor."))
+    direnc = w.get("direnç")
+    if direnc:
+        if p > direnc * 1.02:
+            olaylar.append(("kirilmis", f"Fiyat ({p:.2f} TL) direnç çizgisinin ({direnc:.2f} TL) üstüne çıktı: direnç KIRILDI."))
+        elif p >= direnc * 0.99:
+            olaylar.append(("test", f"Fiyat ({p:.2f} TL) direnç çizgisine ({direnc:.2f} TL) dayandı: kırılmadı, sadece dokunuyor."))
+    return olaylar
 
 def tur():
     simdi = datetime.now(TRT)
@@ -68,54 +77,52 @@ def tur():
             p = son_fiyat(kod)
             if not p:
                 continue
-            olaylar = []
-            if w.get("stop"):
-                if p <= w["stop"]:
-                    olaylar.append(("stop", f"🛑 STOP SEVİYESİ: {p:.2f} TL ≤ {w['stop']:.2f} TL"))
-            for anahtar, emoji in (("destek", ("🛡", "")), ("destek2", ("🛡", "")), ("direnç", ("🚧", ""))):
-                sev = w.get(anahtar)
-                if anahtar == "direnç":
-                    sonuc = seviye_kontrol(kod, anahtar, sev, p, 0.98, 1.01, emoji) if sev else None
-                    if sonuc and sonuc[0] == "kirilmis" and p > sev * 1.02:
-                        sonuc = ("kirilmis", f"🚀 Direnç KIRILDI: {p:.2f} TL > {sev:.2f} TL")
-                    elif sonuc and sonuc[0] == "kirilmis":
-                        sonuc = None
-                else:
-                    sonuc = seviye_kontrol(kod, anahtar, sev, p, 0.98, 1.01, emoji) if sev else None
-                if sonuc:
-                    olaylar.append(sonuc)
-            for tip, mesaj in olaylar:
+            for tip, aciklama in olaylari_bul(w, p):
                 key = f"{kod}:{tip}"
+                sessizlik = timedelta(hours=168) if tip == "kirilmis" else timedelta(hours=24)
                 son = state.get(key)
                 if son:
                     try:
-                        if simdi - datetime.fromisoformat(son) < timedelta(hours=24):
+                        if simdi - datetime.fromisoformat(son) < sessizlik:
                             continue
                     except Exception:
                         pass
+                if tip == "stop":
+                    yap = "Bu hisse sende varsa stop planını HEMEN gözden geçir; sende yoksa bu mesaj sadece bilgi."
+                elif tip == "kirilmis":
+                    yap = "Al-sat tavsiyesi değildir. Bu hisse sende varsa stop planını gözden geçir; yoksa tribünden izlemeye devam."
+                else:
+                    yap = "Şimdilik hiçbir şey: çizgi kırılmadı, sadece dokunuldu. Kırılır ya da sekerse yine yazarım."
                 telegram_gonder(
-                    f"🎯 İZLEME LİSTESİ — {kod}\n{mesaj}\n"
-                    f"🕐 {simdi.strftime('%H:%M')}\n"
-                    f"📌 Grup seviyeleri: destek {w.get('destek', '-')} / direnç {w.get('direnç', '-')} / stop {w.get('stop', '-')}\n"
-                    f"🔎 Seviyeler referanstır, yatırım tavsiyesi değildir.")
+                    f"🎯 SEVİYE NÖBETÇİSİ — {kod}\n"
+                    f"💬 Özünde: {aciklama}\n"
+                    f" {simdi.strftime('%H:%M')}\n"
+                    f"❓ Ne yapmalı: {yap}\n"
+                    f"📌 Grup seviyeleri: destek {w.get('destek', '-')} / direnç {w.get('direnç', '-')} / stop {w.get('stop', '-')}")
                 state[key] = simdi.isoformat()
                 degisti = True
                 print("Seviye olayi:", kod, tip)
 
-    # Gunluk ozet: is gunu 18:35-19:05 arasi bir kez
     dk = simdi.hour * 60 + simdi.minute
     if simdi.weekday() < 5 and (18 * 60 + 35) <= dk <= (19 * 60 + 5) and state.get("ozet_tarih") != simdi.date().isoformat():
-        satirlar = ["🎯 İZLEME LİSTESİ — GÜNLÜK ÖZET"]
+        satirlar = ["🎯 İZLEME LİSTESİ — AKŞAM ÖZETİ", "💬 Özünde: her hisse çizgilerine göre nerede:"]
         for w in watch:
             p = son_fiyat(w.get("kod"))
             if not p:
                 continue
-            sat = f"• {w['kod']}: {p:.2f} TL"
-            if w.get("destek"):
-                sat += f" | desteğe %{(p / w['destek'] - 1) * 100:+.1f}"
-            if w.get("direnç"):
-                sat += f" | dirence %{(p / w['direnç'] - 1) * 100:+.1f}"
-            satirlar.append(sat)
+            d, r = w.get("destek"), w.get("direnç")
+            if d and p < d * 0.98:
+                durum = "desteğin altında (kırılmış)"
+            elif d and p <= d * 1.01:
+                durum = "desteğe dayalı"
+            elif r and p > r * 1.02:
+                durum = "direncin üstünde (kırılmış)"
+            elif r and p >= r * 0.99:
+                durum = "dirence dayalı"
+            else:
+                durum = "çizgilerin arasında"
+            satirlar.append(f"• {w['kod']}: {p:.2f} TL — {durum}")
+        satirlar.append("❓ Ne yapmalı: Bu bir akşam özetidir, tavsiye değildir; gün içindeki kırılım/dokunma mesajları zaten gerekli uyarıları içerir.")
         telegram_gonder("\n".join(satirlar))
         state["ozet_tarih"] = simdi.date().isoformat()
         degisti = True

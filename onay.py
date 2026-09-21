@@ -74,6 +74,7 @@ def tur(manuel=False):
             for ch in kaynaklar:
                 rec[ch] = datetime.now(TRT).isoformat()
             print("Onay kaydi:", kaynaklar, kod)
+            tg(f"✅ Onay kaydedildi: {kaynaklar} → {kod}. Durum için 'LISTE' yaz; çift onay oluşursa ben haber veririm.")
             continue
         if text == "LISTE":
             satirlar = ["🤝 ONAY DEFTERİ:"]

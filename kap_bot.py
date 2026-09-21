@@ -29,7 +29,7 @@ HEADERS = {
 
 KRITIK_KELIMELER = ["halka arz","halkaarz","ipo","bedelsiz","bedelli","sermaye artirimi","sermaye artırımı",
                     "temettu","temettü","kar payi","kar payı","birlesme","birleşme","devralma",
-                    "geri alim","geri alım","ihale"]
+                    "geri alim","geri alım","ihale","tedbir"]
 ANAHTAR = ["sozlesme","sözleşme","yatirim","yatırım","derecelendirme","rating","dava","ceza",
            "anlasma","anlaşma","ortaklik","ortaklık","fabrika","kapasite","lisans"]
 

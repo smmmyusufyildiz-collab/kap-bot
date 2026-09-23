@@ -196,12 +196,13 @@ def tur(manuel=False):
                     continue
             except Exception:
                 pass
-        desc, close, change, rsi, vol, rvol = d[:6]
+        desc, close, change, rsi, vol, rvol = d[0], d[1], d[2], d[3], d[4], d[5]
+        adx = d[6] if len(d) > 6 else None
         try:
             close_f = float(close)
-            vol_f = float(vol)
         except (TypeError, ValueError):
             continue
+        ust = ema21_ustu(kod, close_f)
         if close_f * vol_f < 5_000_000:
             continue
                 try:

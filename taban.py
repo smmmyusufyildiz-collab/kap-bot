@@ -70,22 +70,6 @@ def ema21_ustu(kod, close_f):
         ema = (c * 2 / 22) + (ema * 20 / 22)
     return close_f > ema
 
-def kivilcim(kod):
-    for host in ("query1", "query2"):
-        for _ in range(3):
-            try:
-                url = f"https://{host}.finance.yahoo.com/v8/finance/chart/{kod}.IS"
-                r = requests.get(url, params={"range": "5d", "interval": "1d"}, headers=HEADERS, timeout=20)
-                r.raise_for_status()
-                q = r.json()["chart"]["result"][0]["indicators"]["quote"][0]
-                for o, c in reversed(list(zip(q.get("open", []), q.get("close", [])))):
-                    if o and c:
-                        return (c - o) / o * 100
-                return None
-            except Exception as e:
-                print("Kivilcim deneme:", kod, e)
-    return None
-
 def kap_basliklari():
     try:
         import re as _re
@@ -109,6 +93,7 @@ def tur():
     if not isinstance(track, list):
         track = []
     kap_bas = kap_basliklari()
+    gorulen = set()
     gonderilen = 0
 
     def sessiz_mi(kod):
@@ -128,7 +113,7 @@ def tur():
 
     # ---------- TABAN (UCUZ IZLEME) ----------
     data = tarama(
-        ["description", "close", "change", "RSI", "volume", "relative_volume_10d_calc"],
+        ["description", "close", "change", "RSI", "volume", "relative_volume_10d_calc", "open"],
         [
             {"left": "change", "operation": "greater", "right": -9.8},
             {"left": "change", "operation": "less", "right": -1.5},
@@ -138,19 +123,23 @@ def tur():
         ],
     )
     for item in data:
-        kod = (item.get("s") or "").strip()
+        kod = (item.get("s") or "").replace("BIST:", "").strip()
         d = item.get("d") or []
-        if not kod or len(d) < 6 or sessiz_mi(kod):
+        if not kod or len(d) < 7 or sessiz_mi(kod) or kod in gorulen:
             continue
         desc, close, change, rsi, vol, rvol = d[0], d[1], d[2], d[3], d[4], d[5]
         try:
             close_f = float(close)
             vol_f = float(vol)
-        except (TypeError, ValueError):
+            open_f = float(d[6]) if d[6] else None
+        except (TypeError, ValueError, IndexError):
             continue
         if close_f * vol_f < 5000000:
             continue
-        spark = kivilcim(kod)
+        gorulen.add(kod)
+        spark = None
+        if open_f:
+            spark = (close_f - open_f) / open_f * 100
         if spark is None:
             spark_txt = "Dönüş kıvılcımı şu an hesaplanamadı; sonraki turda yine bakacağım."
         elif spark > 0.5:
@@ -184,9 +173,9 @@ def tur():
         ],
     )
     for item in data:
-        kod = (item.get("s") or "").strip()
+        kod = (item.get("s") or "").replace("BIST:", "").strip()
         d = item.get("d") or []
-        if not kod or len(d) < 7 or sessiz_mi(kod):
+        if not kod or len(d) < 7 or sessiz_mi(kod) or kod in gorulen:
             continue
         desc, close, change, rsi, vol, rvol, adx = d[0], d[1], d[2], d[3], d[4], d[5], d[6]
         try:
@@ -196,6 +185,7 @@ def tur():
             continue
         if close_f * vol_f < 5000000:
             continue
+        gorulen.add(kod)
         ust = ema21_ustu(kod, close_f)
         if ust is False:
             print("EMA21 altinda, elendi:", kod)

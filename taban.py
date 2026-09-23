@@ -35,7 +35,7 @@ def seans_icinde_mi():
 
 def tarama_taban():
     body = {
-        "columns": ["description", "close", "change", "RSI", "volume", "relative_volume_10d_calc"],
+        "columns": ["description", "close", "change", "RSI", "volume", "relative_volume_10d_calc", "open"],
         "filter": [
             {"left": "change", "operation": "greater", "right": -9.9},
             {"left": "change", "operation": "less", "right": -2},

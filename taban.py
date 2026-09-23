@@ -204,7 +204,11 @@ def tur(manuel=False):
             continue
         if close_f * vol_f < 5_000_000:
             continue
-        spark = kivilcim(kod)
+                try:
+            open_f = float(d[6])
+            spark = (close_f - open_f) / open_f * 100 if open_f else None
+        except (TypeError, ValueError, IndexError):
+            spark = None
         kiv = spark is not None and spark > 0
         tip = "kivilcim" if kiv else "taban"
         haber_var = kod in kap_kodlari

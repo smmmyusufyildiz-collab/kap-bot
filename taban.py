@@ -196,7 +196,7 @@ def tur(manuel=False):
                     continue
             except Exception:
                 pass
-        desc, close, change, rsi, vol, rvol = d[0], d[1], d[2], d[3], d[4], d[5]
+        desc, close, change, rsi, vol, rvol = d[:6]
         try:
             close_f = float(close)
             vol_f = float(vol)
@@ -206,7 +206,7 @@ def tur(manuel=False):
             continue
                 try:
             open_f = float(d[6])
-            spark = (close_f - open_f) / open_f * 100 if open_f else None
+            spark = (float(close) - open_f) / open_f * 100 if open_f else None
         except (TypeError, ValueError, IndexError):
             spark = None
         kiv = spark is not None and spark > 0

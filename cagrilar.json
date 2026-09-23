@@ -1,1 +1,4 @@
-[{"tarih": "2026-09-23", "kaynak": "Indikator-C (mühür)", "kod": "ALARK", "soylenen": 108.9, "pencere": 10}]
+[{"tarih": "2026-09-23", "kaynak": "Indikator-C (mühür)", "kod": "ALARK", "soylenen": 108.9, "pencere": 10}],
+  {"tarih": "2026-09-23", "kaynak": "Manuel karar (ben)", "kod": "ALARK", "soylenen": 108.20, "hedef": 119.70, "stop": 101.70, "pencere": 10},
+  {"tarih": "2026-09-23", "kaynak": "Manuel karar (ben)", "kod": "HOROZ", "soylenen": 48.76, "hedef": 51.20, "stop": 45.84, "pencere": 10},
+  {"tarih": "2026-09-23", "kaynak": "Manuel karar (ben)", "kod": "ASTOR", "soylenen": 262.50, "hedef": 268.25, "stop": 249.10, "pencere": 10, "cikis": 268.25, "cikis_tarih": "2026-09-23", "sonuc": "+2.19% kâr al otomatik"}

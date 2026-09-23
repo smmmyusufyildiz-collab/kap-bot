@@ -7,5 +7,7 @@
   {"kod": "ONRYT", "destek": 55.70, "direnç": 63.55},
   {"kod": "FENER", "destek": 3.00, "direnç": 3.20},
   {"kod": "FLAP", "stop": 10.23},
-  {"kod": "TABGD", "destek": 228.0, "direnç": 250.0}
+  {"kod": "TABGD", "destek": 228.0, "direnç": 250.0},
+  {"kod": "ALARK", "destek": 108.20, "direnç": 119.70, "stop": 101.70},
+  {"kod": "HOROZ", "destek": 48.76, "direnç": 51.20, "stop": 45.84}
 ]

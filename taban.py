@@ -158,7 +158,7 @@ def tur():
             f"📊 Deftere alındı: 48 saat sonra sonucu kendim raporlayacağım."
         )
         state[kod] = simdi.isoformat()
-        track.append({"kod": kod, "fiyat": close_f, "ts": simdi.isoformat(), "done": False, "tip": "taban"})
+        track.append({"kod": kod, "fiyat": close_f, "ts": simdi.isoformat(), "done": False, "tip": "taban", "kivilcim_yandi": (spark is not None and spark > 0.5), "rsi": rsi})
         gonderilen += 1
 
     # ---------- TAVAN (MOMENTUM) ----------
@@ -204,7 +204,7 @@ def tur():
             f"📊 Ölçüme alındı: 48s sonra sonuç raporu."
         )
         state[kod] = simdi.isoformat()
-        track.append({"kod": kod, "fiyat": close_f, "ts": simdi.isoformat(), "done": False, "tip": "tavan"})
+        track.append({"kod": kod, "fiyat": close_f, "ts": simdi.isoformat(), "done": False, "tip": "tavan", "kivilcim_yandi": False, "rsi": rsi})
         gonderilen += 1
 
     # ---------- 48 SAAT SONUC ----------
@@ -231,6 +231,7 @@ def tur():
             f"💬 Özünde: uyarı fiyatı {p0:.2f} → şimdi {p1:.2f} ({chg:+.1f}%). Hüküm: {hukm}.\n"
             f"📒 Deftere işlendi; karne hanesine yazıldı."
         )
+        t["sonuc_pct"] = round(chg, 2)
         t["done"] = True
 
     yaz(STATE, state)

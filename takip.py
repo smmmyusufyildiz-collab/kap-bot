@@ -20,12 +20,12 @@ def tg(mesaj):
     except Exception as e:
         print("Telegram hatasi:", e)
 
-def oku(path, bos=None):
+def oku(path, bos):
     try:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
     except Exception:
-        return [] if bos is None else bos
+        return bos
 
 def yaz(path, veri):
     with open(path, "w", encoding="utf-8") as f:
@@ -47,22 +47,24 @@ def fiyat(kod):
         return None
 
 def kivilcim(kod):
-    for deneme in range(2):
-        try:
-            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{kod}.IS"
-            r = requests.get(url, params={"range": "5d", "interval": "1d"}, headers=HEADERS, timeout=20)
-            r.raise_for_status()
-            q = r.json()["chart"]["result"][0]["indicators"]["quote"][0]
-            for o, c in reversed(list(zip(q.get("open", []), q.get("close", [])))):
-                if o and c:
-                    return (c - o) / o * 100
-            return None
-        except Exception as e:
-            print("Kivilcim deneme hatasi:", kod, deneme, e)
+    for host in ("query1", "query2"):
+        for _ in range(3):
+            try:
+                url = f"https://{host}.finance.yahoo.com/v8/finance/chart/{kod}.IS"
+                r = requests.get(url, params={"range": "5d", "interval": "1d"}, headers=HEADERS, timeout=20)
+                r.raise_for_status()
+                q = r.json()["chart"]["result"][0]["indicators"]["quote"][0]
+                for o, c in reversed(list(zip(q.get("open", []), q.get("close", [])))):
+                    if o and c:
+                        return (c - o) / o * 100
+                return None
+            except Exception as e:
+                print("Kivilcim deneme:", kod, e)
     return None
 
-def tur(manuel=False):
+def tur():
     simdi = datetime.now(TRT)
+    manuel = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
     if not manuel and simdi.weekday() >= 5:
         return
     state = oku(STATE, {"takip": {}})
@@ -74,7 +76,7 @@ def tur(manuel=False):
         kod = (t.get("kod") or "").strip()
         if not kod:
             continue
-        key = f"{kod}|{t.get('tarih', t.get('ts', ''))}"
+        key = f"{kod}|{t.get('ts', t.get('tarih', ''))}"
         if key not in state["takip"]:
             p = fiyat(kod)
             if p:
@@ -111,4 +113,4 @@ def tur(manuel=False):
     yaz(STATE, state)
     print("Takip turu bitti. Aktif:", len(state["takip"]))
 
-tur(manuel=(os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"))
+tur()
